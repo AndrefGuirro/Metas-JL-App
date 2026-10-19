@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
+import LevantamentoEstoque from './LevantamentoEstoque.jsx';
 import { 
   Users, Award, Calendar, Search, 
   Plus, Trash2, Edit3, CheckCircle2, ChevronDown, ChevronUp, LogOut, ArrowRight, KeyRound 
@@ -460,6 +461,16 @@ export default function App() {
         >
           Positivação Marcas
         </button>
+        <button 
+  onClick={() => setTab('levantamento')} 
+  className={`flex-1 py-3 text-xs font-semibold text-center border-b-2 ${
+    tab === 'levantamento' 
+      ? 'border-blue-600 text-blue-600' 
+      : 'border-transparent text-slate-500'
+  }`}
+>
+  Levantamento e Sugestão
+</button>
       </nav>
 
       {/* CONTEÚDO */}
@@ -737,6 +748,9 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {tab === 'levantamento' && <LevantamentoEstoque />}
+
       </main>
 
       {/* MODAL: NOVO CLIENTE */}
