@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Share2, Trash2 } from 'lucide-react';
+import { Search, Share2, Trash2, X } from 'lucide-react';
 
 // BASE TOTAL DE PRODUTOS UNIFICADA (Com todos os fabricantes e sem duplicados)
 const BASE_PRODUTOS_BRUTOS = [
@@ -969,9 +969,24 @@ export default function LevantamentoEstoque() {
           placeholder="Digite o nome do produto..."
           value={busca}
           onChange={e => setBusca(e.target.value)}
-          className="w-full bg-slate-50 border border-slate-300 pl-3 pr-9 py-2 text-xs rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+          className="w-full bg-slate-50 border border-slate-300 pl-3 pr-16 py-2 text-xs rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
         />
-        <Search size={16} className="absolute right-3 top-2.5 text-slate-400" />
+        <Search
+          size={16}
+          aria-hidden="true"
+          className={`absolute ${busca ? 'right-9' : 'right-3'} top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none`}
+        />
+        {busca && (
+          <button
+            type="button"
+            onClick={() => setBusca('')}
+            aria-label="Limpar pesquisa"
+            title="Limpar pesquisa"
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700"
+          >
+            <X size={14} aria-hidden="true" />
+          </button>
+        )}
       </div>
 
       {/* AÇÕES: COMPARTILHAR E LIMPAR */}
