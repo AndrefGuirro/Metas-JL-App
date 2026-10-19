@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient';
 import LevantamentoEstoque from './LevantamentoEstoque.jsx';
 import { 
   Users, Award, Calendar, Search, 
-  Plus, Trash2, Edit3, CheckCircle2, ChevronDown, ChevronUp, LogOut, ArrowRight, KeyRound 
+  Plus, Trash2, Edit3, CheckCircle2, ChevronDown, ChevronUp, LogOut, ArrowRight, KeyRound, X 
 } from 'lucide-react';
 
 export default function App() {
@@ -624,8 +624,19 @@ export default function App() {
                   placeholder="Buscar por nome ou endereço..." 
                   value={busca}
                   onChange={e => setBusca(e.target.value)}
-                  className="w-full bg-white border border-slate-300 pl-9 pr-3 py-2 text-sm rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full bg-white border border-slate-300 pl-9 pr-10 py-2 text-sm rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
                 />
+                {busca && (
+                  <button
+                    type="button"
+                    onClick={() => setBusca('')}
+                    aria-label="Limpar pesquisa de clientes"
+                    title="Limpar pesquisa"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700"
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </button>
+                )}
               </div>
               <button 
                 onClick={() => setModalNovoCliente(true)} 
