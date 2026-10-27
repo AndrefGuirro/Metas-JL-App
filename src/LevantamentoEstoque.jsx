@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { memo, useCallback, useState, useEffect, useMemo } from 'react';
 import { Search, Share2, Trash2, X } from 'lucide-react';
 
 // BASE TOTAL DE PRODUTOS UNIFICADA (Com todos os fabricantes e sem duplicados)
@@ -814,6 +814,55 @@ const BASE_PRODUTOS_BRUTOS = [
   { nome: 'STROGONOFF DE FRANGO STD VAPZA 10X250G', grupo: 'VAPZA' }
 ];
 
+const EMPTY_INFO = Object.freeze({});
+
+function ajustarAltura(element) {
+  element.style.height = 'auto';
+  element.style.height = `${element.scrollHeight}px`;
+}
+
+const LinhaProduto = memo(function LinhaProduto({ produto, info, onChange }) {
+  return (
+    <tr className="hover:bg-slate-50">
+      <td className="p-2.5 text-slate-800 font-medium border-r border-slate-300 leading-snug">
+        {produto.nome}
+      </td>
+      <td className="p-1 border-r border-slate-300">
+        <textarea
+          rows={1}
+          ref={element => {
+            if (element?.value) ajustarAltura(element);
+          }}
+          value={info.estoque || ''}
+          onChange={e => {
+            onChange(produto.nome, 'estoque', e.target.value);
+            ajustarAltura(e.currentTarget);
+          }}
+          placeholder="0"
+          aria-label={`Estoque de ${produto.nome}`}
+          className="w-full min-h-8 resize-none overflow-hidden break-words text-center py-1.5 font-bold text-slate-700 bg-slate-100 rounded focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-600"
+        />
+      </td>
+      <td className="p-1">
+        <textarea
+          rows={1}
+          ref={element => {
+            if (element?.value) ajustarAltura(element);
+          }}
+          value={info.sugestao || ''}
+          onChange={e => {
+            onChange(produto.nome, 'sugestao', e.target.value);
+            ajustarAltura(e.currentTarget);
+          }}
+          placeholder="0"
+          aria-label={`Sugestão de ${produto.nome}`}
+          className="w-full min-h-8 resize-none overflow-hidden break-words text-center py-1.5 font-bold text-blue-600 bg-blue-50 rounded focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-600"
+        />
+      </td>
+    </tr>
+  );
+});
+
 export default function LevantamentoEstoque() {
   // Filtro de desduplicação automática por nome de produto
   const produtos = useMemo(() => {
@@ -855,7 +904,7 @@ export default function LevantamentoEstoque() {
     localStorage.setItem('dadosTabela_JL', JSON.stringify(dadosTabela));
   }, [dadosTabela]);
 
-  function handleChange(nomeProduto, campo, valor) {
+  const handleChange = useCallback((nomeProduto, campo, valor) => {
     setDadosTabela(prev => ({
       ...prev,
       [nomeProduto]: {
@@ -863,7 +912,7 @@ export default function LevantamentoEstoque() {
         [campo]: valor
       }
     }));
-  }
+  }, []);
 
   function limparDados() {
     const confirmar = confirm('Tem certeza que deseja apagar todos os dados do levantamento? Essa ação não pode ser desfeita.');
@@ -1019,53 +1068,14 @@ export default function LevantamentoEstoque() {
           </thead>
           <tbody className="divide-y divide-slate-200">
             {produtosFiltrados.map((prod) => {
-              const info = dadosTabela[prod.nome] || {};
+              const info = dadosTabela[prod.nome] || EMPTY_INFO;
               return (
-                <tr key={prod.nome} className="hover:bg-slate-50">
-                  <td className="p-2.5 text-slate-800 font-medium border-r border-slate-300 leading-snug">
-                    {prod.nome}
-                  </td>
-                  <td className="p-1 border-r border-slate-300">
-                    <textarea
-                      rows={1}
-                      ref={element => {
-                        if (element) {
-                          element.style.height = 'auto';
-                          element.style.height = `${element.scrollHeight}px`;
-                        }
-                      }}
-                      value={info.estoque || ''}
-                      onChange={e => {
-                        handleChange(prod.nome, 'estoque', e.target.value);
-                        e.currentTarget.style.height = 'auto';
-                        e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
-                      }}
-                      placeholder="0"
-                      aria-label={`Estoque de ${prod.nome}`}
-                      className="w-full min-h-8 resize-none overflow-hidden break-words text-center py-1.5 font-bold text-slate-700 bg-slate-100 rounded focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-600"
-                    />
-                  </td>
-                  <td className="p-1">
-                    <textarea
-                      rows={1}
-                      ref={element => {
-                        if (element) {
-                          element.style.height = 'auto';
-                          element.style.height = `${element.scrollHeight}px`;
-                        }
-                      }}
-                      value={info.sugestao || ''}
-                      onChange={e => {
-                        handleChange(prod.nome, 'sugestao', e.target.value);
-                        e.currentTarget.style.height = 'auto';
-                        e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
-                      }}
-                      placeholder="0"
-                      aria-label={`Sugestão de ${prod.nome}`}
-                      className="w-full min-h-8 resize-none overflow-hidden break-words text-center py-1.5 font-bold text-blue-600 bg-blue-50 rounded focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-600"
-                    />
-                  </td>
-                </tr>
+                <LinhaProduto
+                  key={prod.nome}
+                  produto={prod}
+                  info={info}
+                  onChange={handleChange}
+                />
               );
             })}
             {produtosFiltrados.length === 0 && (
