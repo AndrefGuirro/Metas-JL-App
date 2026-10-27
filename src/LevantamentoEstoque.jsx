@@ -1090,7 +1090,7 @@ export default function LevantamentoEstoque() {
       </div>
 
       <p className="text-center text-[10px] text-slate-400 pt-2">
-        © 2026 - Em Desenvolvimento por André F. Guirro | JL Distribuidora
+        © 2026 - Em Desenvolvimento por <a href="https://andrefguirro.github.io/portifolio-main/">André Guirro</a> | JL Distribuidora
       </p>
     </div>
   );
