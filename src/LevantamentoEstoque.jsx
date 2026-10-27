@@ -878,17 +878,17 @@ export default function LevantamentoEstoque() {
 
     produtos.forEach(prod => {
       const info = dadosTabela[prod.nome] || {};
-      const est = info.estoque ? info.estoque.trim() : '';
-      const sug = info.sugestao ? info.sugestao.trim() : '';
+      const est = String(info.estoque ?? '').trim();
+      const sug = String(info.sugestao ?? '').trim();
 
-      if (est !== '' && sug !== '') {
+      if (est !== '' || sug !== '') {
         temItens = true;
         mensagem += `*Produto:* ${prod.nome}\n*Estoque:* ${est}\n*Sugestão:* ${sug}\n\n------------------------\n`;
       }
     });
 
     if (!temItens) {
-      alert('Falta produto preenchido para compartilhar. Preencha as 2 colunas (Estoque e Sugestão), mesmo que seja 0.');
+      alert('Preencha pelo menos uma das colunas (Estoque ou Sugestão) para compartilhar.');
       return;
     }
 
@@ -908,8 +908,8 @@ export default function LevantamentoEstoque() {
 
       if (filtroTipo === 'cadastrados') {
         const info = dadosTabela[prod.nome] || {};
-        const temEstoque = info.estoque && info.estoque.trim() !== '';
-        const temSugestao = info.sugestao && info.sugestao.trim() !== '';
+        const temEstoque = String(info.estoque ?? '').trim() !== '';
+        const temSugestao = String(info.sugestao ?? '').trim() !== '';
         return temEstoque || temSugestao;
       }
 
@@ -1026,23 +1026,43 @@ export default function LevantamentoEstoque() {
                     {prod.nome}
                   </td>
                   <td className="p-1 border-r border-slate-300">
-                    <input
-                      type="text"
-                      inputMode="numeric"
+                    <textarea
+                      rows={1}
+                      ref={element => {
+                        if (element) {
+                          element.style.height = 'auto';
+                          element.style.height = `${element.scrollHeight}px`;
+                        }
+                      }}
                       value={info.estoque || ''}
-                      onChange={e => handleChange(prod.nome, 'estoque', e.target.value)}
+                      onChange={e => {
+                        handleChange(prod.nome, 'estoque', e.target.value);
+                        e.currentTarget.style.height = 'auto';
+                        e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
+                      }}
                       placeholder="0"
-                      className="w-full text-center py-1.5 font-bold text-slate-700 bg-slate-100 rounded focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-600"
+                      aria-label={`Estoque de ${prod.nome}`}
+                      className="w-full min-h-8 resize-none overflow-hidden break-words text-center py-1.5 font-bold text-slate-700 bg-slate-100 rounded focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-600"
                     />
                   </td>
                   <td className="p-1">
-                    <input
-                      type="text"
-                      inputMode="numeric"
+                    <textarea
+                      rows={1}
+                      ref={element => {
+                        if (element) {
+                          element.style.height = 'auto';
+                          element.style.height = `${element.scrollHeight}px`;
+                        }
+                      }}
                       value={info.sugestao || ''}
-                      onChange={e => handleChange(prod.nome, 'sugestao', e.target.value)}
+                      onChange={e => {
+                        handleChange(prod.nome, 'sugestao', e.target.value);
+                        e.currentTarget.style.height = 'auto';
+                        e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
+                      }}
                       placeholder="0"
-                      className="w-full text-center py-1.5 font-bold text-blue-600 bg-blue-50 rounded focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-600"
+                      aria-label={`Sugestão de ${prod.nome}`}
+                      className="w-full min-h-8 resize-none overflow-hidden break-words text-center py-1.5 font-bold text-blue-600 bg-blue-50 rounded focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-600"
                     />
                   </td>
                 </tr>
