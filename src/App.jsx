@@ -48,6 +48,12 @@ export default function App() {
   const [modalPedido, setModalPedido] = useState(null);
   const [valorPedido, setValorPedido] = useState('');
 
+  // Lista de pedidos de um cliente (vários pedidos no mês)
+  const [modalListaPedidos, setModalListaPedidos] = useState(null);
+  const [valorNovoPedido, setValorNovoPedido] = useState('');
+  const [pedidoEmEdicao, setPedidoEmEdicao] = useState(null);
+  const [valorEdicao, setValorEdicao] = useState('');
+
   const [modalPositivacao, setModalPositivacao] = useState(null);
   const [modalNovaMarca, setModalNovaMarca] = useState(false);
   const [novaMarca, setNovaMarca] = useState({ nome: '', meta: '' });
@@ -118,7 +124,8 @@ export default function App() {
       .from('pedidos')
       .select('*')
       .eq('vendedor_id', currentUser.id)
-      .eq('mes_ref', mesRef);
+      .eq('mes_ref', mesRef)
+      .order('id'); // ordem estável: editar um pedido não muda a posição na lista
     setPedidos(peds || []);
 
     const { data: poss } = await supabase
@@ -236,6 +243,21 @@ export default function App() {
   const clientesPositivados = clientes.filter(c => clientesIdsComPedido.has(c.id));
   const clientesNaoPositivados = clientes.filter(c => !clientesIdsComPedido.has(c.id));
 
+  // Total de pedidos do mês por cliente (um cliente pode ter vários pedidos)
+  const totalPedidosPorCliente = pedidos.reduce((acc, p) => {
+    acc[p.cliente_id] = (acc[p.cliente_id] || 0) + Number(p.valor || 0);
+    return acc;
+  }, {});
+
+  const formatarMoeda = (valor) =>
+    Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+
+  // Pedidos e total do cliente aberto na lista de pedidos
+  const pedidosModal = modalListaPedidos
+    ? pedidos.filter(p => p.cliente_id === modalListaPedidos.id)
+    : [];
+  const totalModal = modalListaPedidos ? (totalPedidosPorCliente[modalListaPedidos.id] || 0) : 0;
+
   // --- GESTÃO DE CLIENTES E PEDIDOS ---
   async function cadastrarCliente(e) {
     e.preventDefault();
@@ -256,13 +278,13 @@ export default function App() {
     }
   }
 
-  async function salvarPedido(clienteId) {
+  // pedidoId: id do pedido que está sendo editado (vazio = pedido novo)
+  async function salvarPedido(clienteId, pedidoId = null) {
     const valor = parseFloat(valorPedido);
     if (isNaN(valor) || !currentUser?.id) return;
 
-    const existente = pedidos.find(p => p.cliente_id === clienteId && p.vendedor_id === currentUser.id);
-    if (existente) {
-      await supabase.from('pedidos').update({ valor }).eq('id', existente.id);
+    if (pedidoId) {
+      await supabase.from('pedidos').update({ valor }).eq('id', pedidoId).eq('vendedor_id', currentUser.id);
     } else {
       await supabase.from('pedidos').insert([{
         vendedor_id: currentUser.id,
@@ -276,10 +298,61 @@ export default function App() {
     carregarDados();
   }
 
-  async function removerPedido(clienteId) {
-    // Só remove o pedido do mês corrente; meses anteriores ficam preservados
-    await supabase.from('pedidos').delete().match({ cliente_id: clienteId, vendedor_id: currentUser.id, mes_ref: mesRef });
+  // Remove apenas o pedido informado (os demais pedidos do cliente e de outros meses ficam)
+  async function removerPedido(pedidoId) {
+    if (pedidoId && currentUser?.id) {
+      await supabase.from('pedidos').delete().eq('id', pedidoId).eq('vendedor_id', currentUser.id);
+    }
     setModalPedido(null);
+    carregarDados();
+  }
+
+  // --- LISTA DE PEDIDOS DO CLIENTE ---
+  function abrirListaPedidos(cliente) {
+    setModalListaPedidos(cliente);
+    setValorNovoPedido('');
+    setPedidoEmEdicao(null);
+    setValorEdicao('');
+  }
+
+  function fecharListaPedidos() {
+    setModalListaPedidos(null);
+    setValorNovoPedido('');
+    setPedidoEmEdicao(null);
+    setValorEdicao('');
+  }
+
+  async function adicionarPedido(clienteId) {
+    const valor = parseFloat(valorNovoPedido);
+    if (isNaN(valor) || !currentUser?.id) return;
+
+    await supabase.from('pedidos').insert([{
+      vendedor_id: currentUser.id,
+      cliente_id: clienteId,
+      valor,
+      mes_ref: mesRef
+    }]);
+    setValorNovoPedido('');
+    carregarDados();
+  }
+
+  async function salvarEdicaoPedido(pedidoId) {
+    const valor = parseFloat(valorEdicao);
+    if (isNaN(valor) || !currentUser?.id) return;
+
+    await supabase.from('pedidos').update({ valor }).eq('id', pedidoId).eq('vendedor_id', currentUser.id);
+    setPedidoEmEdicao(null);
+    setValorEdicao('');
+    carregarDados();
+  }
+
+  async function excluirPedidoDaLista(pedido) {
+    if (!confirm(`Excluir o pedido de R$ ${formatarMoeda(pedido.valor)}?`)) return;
+    if (pedidoEmEdicao === pedido.id) {
+      setPedidoEmEdicao(null);
+      setValorEdicao('');
+    }
+    await supabase.from('pedidos').delete().eq('id', pedido.id).eq('vendedor_id', currentUser.id);
     carregarDados();
   }
 
@@ -602,7 +675,7 @@ export default function App() {
                         <div key={c.id} className="text-xs bg-emerald-50 text-emerald-900 p-1.5 rounded flex justify-between">
                           <span>{c.nome}</span>
                           <span className="font-semibold">
-                            R$ {(pedidos.find(p => p.cliente_id === c.id)?.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            R$ {formatarMoeda(totalPedidosPorCliente[c.id])}
                           </span>
                         </div>
                       ))}
@@ -685,7 +758,9 @@ export default function App() {
                   (c.endereco && c.endereco.toLowerCase().includes(busca.toLowerCase()))
                 )
                 .map(cli => {
-                  const pedido = pedidos.find(p => p.cliente_id === cli.id);
+                  const pedidosCli = pedidos.filter(p => p.cliente_id === cli.id);
+                  const pedido = pedidosCli[0];
+                  const totalCli = totalPedidosPorCliente[cli.id] || 0;
                   const positivadasCli = positivacoes.filter(p => p.cliente_id === cli.id);
 
                   return (
@@ -695,11 +770,13 @@ export default function App() {
                           <h4 className="text-sm font-bold text-slate-800">{cli.nome}</h4>
                           <p className="text-xs text-slate-500">{cli.endereco || 'Endereço não informado'}</p>
                         </div>
-                        {pedido && (
+                        {pedidosCli.length > 0 && (
                           <div className="text-right">
-                            <span className="text-xs text-slate-400 block">Pedido:</span>
+                            <span className="text-xs text-slate-400 block">
+                              {pedidosCli.length > 1 ? `Total (${pedidosCli.length} pedidos):` : 'Pedido:'}
+                            </span>
                             <span className="text-sm font-bold text-emerald-600">
-                              R$ {Number(pedido.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              R$ {formatarMoeda(totalCli)}
                             </span>
                           </div>
                         )}
@@ -718,19 +795,37 @@ export default function App() {
                         </div>
                       )}
 
-                      <div className="flex gap-2 pt-2 border-t border-slate-100">
-                        <button 
-                          onClick={() => {
-                            setModalPedido(cli);
-                            setValorPedido(pedido ? pedido.valor : '');
-                          }}
-                          className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-700 py-1.5 rounded text-xs font-semibold"
-                        >
-                          {pedido ? 'Editar Pedido' : 'Lançar Pedido'}
-                        </button>
-                        <button 
+                      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                        {/* Sem pedido: lança o primeiro. Com 1 pedido: edita. Com vários: abre a lista. */}
+                        {pedidosCli.length <= 1 ? (
+                          <button
+                            onClick={() => {
+                              setModalPedido({ ...cli, pedidoId: pedido ? pedido.id : null });
+                              setValorPedido(pedido ? pedido.valor : '');
+                            }}
+                            className="bg-slate-50 hover:bg-slate-100 text-slate-700 py-1.5 rounded text-xs font-semibold"
+                          >
+                            {pedido ? 'Editar Pedido' : 'Lançar Pedido'}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => abrirListaPedidos(cli)}
+                            className="bg-slate-50 hover:bg-slate-100 text-slate-700 py-1.5 rounded text-xs font-semibold"
+                          >
+                            Pedidos ({pedidosCli.length})
+                          </button>
+                        )}
+                        {pedidosCli.length > 0 && (
+                          <button
+                            onClick={() => abrirListaPedidos(cli)}
+                            className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-1.5 rounded text-xs font-semibold flex items-center justify-center gap-1"
+                          >
+                            <Plus size={14} /> Novo Pedido
+                          </button>
+                        )}
+                        <button
                           onClick={() => setModalPositivacao(cli)}
-                          className="flex-1 bg-blue-50 hover:bg-blue-100 text-blue-700 py-1.5 rounded text-xs font-semibold"
+                          className={`bg-blue-50 hover:bg-blue-100 text-blue-700 py-1.5 rounded text-xs font-semibold ${pedidosCli.length > 0 ? 'col-span-2' : ''}`}
                         >
                           Positivar ({positivadasCli.length})
                         </button>
@@ -849,17 +944,138 @@ export default function App() {
                 />
               </div>
               <div className="flex gap-2 pt-2">
-                <button 
-                  type="button" 
-                  onClick={() => removerPedido(modalPedido.id)} 
-                  className="bg-rose-50 text-rose-700 px-3 py-2 rounded text-xs font-semibold flex items-center gap-1"
-                >
-                  <Trash2 size={14} /> Excluir
-                </button>
+                {modalPedido.pedidoId && (
+                  <button
+                    type="button"
+                    onClick={() => removerPedido(modalPedido.pedidoId)}
+                    className="bg-rose-50 text-rose-700 px-3 py-2 rounded text-xs font-semibold flex items-center gap-1"
+                  >
+                    <Trash2 size={14} /> Excluir
+                  </button>
+                )}
                 <button type="button" onClick={() => setModalPedido(null)} className="flex-1 bg-slate-100 py-2 rounded text-xs font-semibold">Fechar</button>
-                <button type="button" onClick={() => salvarPedido(modalPedido.id)} className="flex-1 bg-blue-600 text-white py-2 rounded text-xs font-semibold">Salvar</button>
+                <button type="button" onClick={() => salvarPedido(modalPedido.id, modalPedido.pedidoId)} className="flex-1 bg-blue-600 text-white py-2 rounded text-xs font-semibold">Salvar</button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: PEDIDOS DO CLIENTE (TODOS OS PEDIDOS, COM EDITAR/EXCLUIR EM CADA UM) */}
+      {modalListaPedidos && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3">
+          <div className="bg-white w-full max-w-md rounded-2xl p-4 shadow-xl flex flex-col max-h-[90dvh]">
+            <div className="flex justify-between items-start gap-2">
+              <div className="min-w-0">
+                <h3 className="text-base font-bold text-slate-800">Pedidos do cliente</h3>
+                <p className="text-xs text-slate-500 truncate">{modalListaPedidos.nome}</p>
+              </div>
+              <button
+                type="button"
+                onClick={fecharListaPedidos}
+                aria-label="Fechar"
+                className="text-slate-400 p-2 -mr-2 -mt-1 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="bg-emerald-50 rounded-xl p-3 flex justify-between items-center my-3">
+              <div>
+                <span className="text-[10px] font-bold text-emerald-700 uppercase block">Total dos pedidos</span>
+                <span className="text-[11px] text-emerald-700">
+                  {pedidosModal.length} {pedidosModal.length === 1 ? 'pedido lançado' : 'pedidos lançados'}
+                </span>
+              </div>
+              <span className="text-lg font-extrabold text-emerald-800">R$ {formatarMoeda(totalModal)}</span>
+            </div>
+
+            <form
+              onSubmit={e => { e.preventDefault(); adicionarPedido(modalListaPedidos.id); }}
+              className="flex gap-2 mb-3"
+            >
+              <input
+                type="number"
+                step="0.01"
+                inputMode="decimal"
+                placeholder="Valor do novo pedido (R$)"
+                value={valorNovoPedido}
+                onChange={e => setValorNovoPedido(e.target.value)}
+                className="flex-1 min-w-0 border border-slate-300 rounded-lg p-2.5 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+              <button
+                type="submit"
+                className="bg-blue-600 text-white px-3 rounded-lg text-xs font-bold flex items-center gap-1 shrink-0"
+              >
+                <Plus size={16} /> Adicionar
+              </button>
+            </form>
+
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-0.5">
+              {pedidosModal.length === 0 && (
+                <p className="text-xs text-slate-400 text-center py-4">Nenhum pedido lançado.</p>
+              )}
+              {pedidosModal.map(ped => (
+                <div key={ped.id} className="border border-slate-200 rounded-xl p-2.5">
+                  {pedidoEmEdicao === ped.id ? (
+                    <div className="space-y-2">
+                      <input
+                        type="number"
+                        step="0.01"
+                        inputMode="decimal"
+                        value={valorEdicao}
+                        onChange={e => setValorEdicao(e.target.value)}
+                        className="w-full border border-slate-300 rounded-lg p-2.5 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setPedidoEmEdicao(null); setValorEdicao(''); }}
+                          className="flex-1 bg-slate-100 py-2.5 rounded-lg text-xs font-semibold"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => salvarEdicaoPedido(ped.id)}
+                          className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-xs font-semibold"
+                        >
+                          Salvar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-bold text-emerald-700">R$ {formatarMoeda(ped.valor)}</span>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setPedidoEmEdicao(ped.id); setValorEdicao(ped.valor); }}
+                          className="bg-slate-50 hover:bg-slate-100 text-slate-700 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1"
+                        >
+                          <Edit3 size={14} /> Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => excluirPedidoDaLista(ped)}
+                          className="bg-rose-50 hover:bg-rose-100 text-rose-700 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1"
+                        >
+                          <Trash2 size={14} /> Excluir
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={fecharListaPedidos}
+              className="w-full bg-slate-100 py-3 rounded-xl text-xs font-bold mt-3"
+            >
+              Fechar
+            </button>
           </div>
         </div>
       )}
