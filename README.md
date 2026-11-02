@@ -48,7 +48,7 @@ Aplicativo web progressivo (PWA) para **acompanhamento diário de metas e vendas
 | Build e dev server | [Vite](https://vite.dev/) |
 | Estilização | [Tailwind CSS 3](https://tailwindcss.com/) e PostCSS |
 | Ícones | [Lucide React](https://lucide.dev/) |
-| Banco de dados | [Supabase](https://supabase.com/) (PostgreSQL), via `@supabase/supabase-js` |
+| Banco de dados | PostgreSQL |
 | PWA | [vite-plugin-pwa](https://vite-pwa-org.netlify.app/) (service worker e manifesto) |
 | Qualidade de código | [Oxlint](https://oxc.rs/docs/guide/usage/linter) |
 | Hospedagem | [Vercel](https://vercel.com/) |
@@ -75,7 +75,7 @@ Aplicativo web progressivo (PWA) para **acompanhamento diário de metas e vendas
 
 ## Modelo de dados
 
-O app usa as seguintes tabelas no Supabase:
+O app usa as seguintes tabelas no banco de dados:
 
 | Tabela | Finalidade |
 | --- | --- |
@@ -86,53 +86,7 @@ O app usa as seguintes tabelas no Supabase:
 | `pedidos` | Pedidos lançados por cliente, com valor e mês de referência |
 | `positivacoes` | Marcas positivadas por cliente, com mês de referência |
 
-## Como rodar localmente
 
-**Pré-requisitos:** [Node.js](https://nodejs.org/) 18 ou superior e um projeto no Supabase com as tabelas acima.
-
-```bash
-# 1. Clone o repositório
-git clone https://github.com/AndrefGuirro/Metas-JL-App.git
-cd Metas-JL-App
-
-# 2. Instale as dependências
-npm install
-
-# 3. Configure as variáveis de ambiente
-cp .env.example .env
-# Preencha VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY com os dados do seu projeto
-
-# 4. Inicie o servidor de desenvolvimento
-npm run dev
-```
-
-### Variáveis de ambiente
-
-| Variável | Descrição |
-| --- | --- |
-| `VITE_SUPABASE_URL` | URL do projeto no Supabase |
-| `VITE_SUPABASE_ANON_KEY` | Chave pública (`anon`) do projeto |
-
-O arquivo `.env` está no `.gitignore` e não deve ser versionado.
-
-### Scripts disponíveis
-
-| Comando | O que faz |
-| --- | --- |
-| `npm run dev` | Inicia o servidor de desenvolvimento |
-| `npm run build` | Gera a versão de produção na pasta `dist` |
-| `npm run preview` | Executa localmente a versão gerada pelo build |
-| `npm run lint` | Analisa o código com o Oxlint |
-
-## Deploy
-
-O projeto é publicado na Vercel. Basta importar o repositório e cadastrar as duas variáveis de ambiente acima em **Settings → Environment Variables**. O arquivo `vercel.json` já direciona todas as rotas para o `index.html`.
-
-## Próximos passos
-
-- Migrar a autenticação para o Supabase Auth e proteger os dados de cada vendedor com Row Level Security (RLS).
-- Consulta ao histórico e comparativo entre meses.
-- Testes automatizados.
 
 ## Autor
 
