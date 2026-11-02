@@ -4,7 +4,7 @@ import LevantamentoEstoque from './LevantamentoEstoque.jsx';
 import { getMesRef, formatarMesRef } from './mesReferencia.js';
 import {
   Users, Award, Calendar, Search, 
-  Plus, Trash2, Edit3, CheckCircle2, ChevronDown, ChevronUp, LogOut, ArrowRight, KeyRound, X 
+  Plus, Trash2, Edit3, Pencil, CheckCircle2, ChevronDown, ChevronUp, LogOut, ArrowRight, KeyRound, X 
 } from 'lucide-react';
 
 export default function App() {
@@ -44,6 +44,11 @@ export default function App() {
   const [showPositivadosToggle, setShowPositivadosToggle] = useState(false);
   const [modalNovoCliente, setModalNovoCliente] = useState(false);
   const [novoCliente, setNovoCliente] = useState({ nome: '', endereco: '' });
+
+  // Edição / exclusão de cliente (guarda o cliente aberto e os dados do formulário)
+  const [clienteEditando, setClienteEditando] = useState(null);
+  const [dadosEdicaoCliente, setDadosEdicaoCliente] = useState({ nome: '', endereco: '' });
+  const [salvandoCliente, setSalvandoCliente] = useState(false);
 
   const [modalPedido, setModalPedido] = useState(null);
   const [valorPedido, setValorPedido] = useState('');
@@ -276,6 +281,77 @@ export default function App() {
       setNovoCliente({ nome: '', endereco: '' });
       setModalNovoCliente(false);
     }
+  }
+
+  function abrirEdicaoCliente(cliente) {
+    setClienteEditando(cliente);
+    setDadosEdicaoCliente({ nome: cliente.nome || '', endereco: cliente.endereco || '' });
+  }
+
+  function fecharEdicaoCliente() {
+    setClienteEditando(null);
+    setDadosEdicaoCliente({ nome: '', endereco: '' });
+  }
+
+  async function salvarEdicaoCliente(e) {
+    e.preventDefault();
+    const nome = dadosEdicaoCliente.nome.trim();
+    if (!nome || !clienteEditando || !currentUser?.id || salvandoCliente) return;
+
+    setSalvandoCliente(true);
+    const { data, error } = await supabase
+      .from('clientes')
+      .update({ nome, endereco: dadosEdicaoCliente.endereco.trim() || null })
+      .eq('id', clienteEditando.id)
+      .eq('vendedor_id', currentUser.id)
+      .select();
+    setSalvandoCliente(false);
+
+    if (error) {
+      alert('Erro ao salvar cliente: ' + error.message);
+    } else if (!data || data.length === 0) {
+      alert('Não foi possível salvar as alterações deste cliente. Tente novamente.');
+    } else {
+      setClientes(prev =>
+        prev
+          .map(c => (c.id === data[0].id ? data[0] : c))
+          .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+      );
+      fecharEdicaoCliente();
+    }
+  }
+
+  async function excluirCliente() {
+    if (!clienteEditando || !currentUser?.id || salvandoCliente) return;
+
+    const cliente = clienteEditando;
+    const pedidosDoCliente = pedidos.filter(p => p.cliente_id === cliente.id).length;
+    const aviso = pedidosDoCliente > 0
+      ? `Excluir "${cliente.nome}"?\n\nOs pedidos e as positivações deste cliente também serão apagados. Esta ação não pode ser desfeita.`
+      : `Excluir "${cliente.nome}"?\n\nAs positivações deste cliente também serão apagadas. Esta ação não pode ser desfeita.`;
+    if (!confirm(aviso)) return;
+
+    setSalvandoCliente(true);
+
+    // Apaga primeiro o que está ligado ao cliente (todos os meses) e por último o cliente
+    const filtro = { cliente_id: cliente.id, vendedor_id: currentUser.id };
+    const { error: errPed } = await supabase.from('pedidos').delete().match(filtro);
+    const { error: errPos } = errPed ? { error: null } : await supabase.from('positivacoes').delete().match(filtro);
+    const { error: errCli } = (errPed || errPos)
+      ? { error: null }
+      : await supabase.from('clientes').delete().eq('id', cliente.id).eq('vendedor_id', currentUser.id);
+
+    setSalvandoCliente(false);
+
+    const erro = errPed || errPos || errCli;
+    if (erro) {
+      alert('Erro ao excluir cliente: ' + erro.message);
+      carregarDados();
+      return;
+    }
+
+    fecharEdicaoCliente();
+    carregarDados();
   }
 
   // pedidoId: id do pedido que está sendo editado (vazio = pedido novo)
@@ -765,21 +841,32 @@ export default function App() {
 
                   return (
                     <div key={cli.id} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm space-y-2">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-800">{cli.nome}</h4>
-                          <p className="text-xs text-slate-500">{cli.endereco || 'Endereço não informado'}</p>
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-sm font-bold text-slate-800 break-words">{cli.nome}</h4>
+                          <p className="text-xs text-slate-500 break-words">{cli.endereco || 'Endereço não informado'}</p>
                         </div>
-                        {pedidosCli.length > 0 && (
-                          <div className="text-right">
-                            <span className="text-xs text-slate-400 block">
-                              {pedidosCli.length > 1 ? `Total (${pedidosCli.length} pedidos):` : 'Pedido:'}
-                            </span>
-                            <span className="text-sm font-bold text-emerald-600">
-                              R$ {formatarMoeda(totalCli)}
-                            </span>
-                          </div>
-                        )}
+                        <div className="flex flex-col items-end shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => abrirEdicaoCliente(cli)}
+                            aria-label={`Editar cliente ${cli.nome}`}
+                            title="Editar cliente"
+                            className="-mt-2 -mr-2 w-10 h-10 flex items-center justify-center text-slate-400 hover:text-blue-600 active:text-blue-700"
+                          >
+                            <Pencil size={16} aria-hidden="true" />
+                          </button>
+                          {pedidosCli.length > 0 && (
+                            <div className="text-right -mt-1">
+                              <span className="text-xs text-slate-400 block">
+                                {pedidosCli.length > 1 ? `Total (${pedidosCli.length} pedidos):` : 'Pedido:'}
+                              </span>
+                              <span className="text-sm font-bold text-emerald-600">
+                                R$ {formatarMoeda(totalCli)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
 
                       {positivadasCli.length > 0 && (
@@ -920,6 +1007,66 @@ export default function App() {
                 <button type="button" onClick={() => setModalNovoCliente(false)} className="flex-1 bg-slate-100 py-2 rounded text-xs font-semibold">Cancelar</button>
                 <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded text-xs font-semibold">Salvar</button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDITAR / EXCLUIR CLIENTE */}
+      {clienteEditando && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-xl p-5 shadow-lg max-h-[90dvh] overflow-y-auto">
+            <div className="flex justify-between items-start mb-3">
+              <h3 className="text-base font-bold text-slate-800">Editar Cliente</h3>
+              <button
+                type="button"
+                onClick={fecharEdicaoCliente}
+                aria-label="Fechar"
+                className="text-slate-400 p-2 -mr-2 -mt-2 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+            <form onSubmit={salvarEdicaoCliente} className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-600 block mb-1">Nome do Cliente *</label>
+                <input
+                  type="text"
+                  required
+                  value={dadosEdicaoCliente.nome}
+                  onChange={e => setDadosEdicaoCliente({ ...dadosEdicaoCliente, nome: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-600 block mb-1">Endereço (Opcional)</label>
+                <input
+                  type="text"
+                  value={dadosEdicaoCliente.endereco}
+                  onChange={e => setDadosEdicaoCliente({ ...dadosEdicaoCliente, endereco: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={fecharEdicaoCliente} className="flex-1 bg-slate-100 py-3 rounded-lg text-xs font-semibold">
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoCliente}
+                  className="flex-1 bg-blue-600 text-white py-3 rounded-lg text-xs font-semibold disabled:opacity-50"
+                >
+                  {salvandoCliente ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={excluirCliente}
+                disabled={salvandoCliente}
+                className="w-full bg-rose-50 hover:bg-rose-100 text-rose-700 py-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 disabled:opacity-50"
+              >
+                <Trash2 size={14} /> Excluir Cliente
+              </button>
             </form>
           </div>
         </div>
