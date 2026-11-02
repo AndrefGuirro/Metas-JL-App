@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import LevantamentoEstoque from './LevantamentoEstoque.jsx';
-import { 
+import { getMesRef, formatarMesRef } from './mesReferencia.js';
+import {
   Users, Award, Calendar, Search, 
   Plus, Trash2, Edit3, CheckCircle2, ChevronDown, ChevronUp, LogOut, ArrowRight, KeyRound, X 
 } from 'lucide-react';
@@ -35,6 +36,9 @@ export default function App() {
   const [pedidos, setPedidos] = useState([]);
   const [positivacoes, setPositivacoes] = useState([]);
 
+  // Mês corrente ("AAAA-MM"). Pedidos e positivações são separados por mês.
+  const [mesRef, setMesRef] = useState(() => getMesRef());
+
   // Modais e Filtros
   const [busca, setBusca] = useState('');
   const [showPositivadosToggle, setShowPositivadosToggle] = useState(false);
@@ -49,6 +53,24 @@ export default function App() {
   const [novaMarca, setNovaMarca] = useState({ nome: '', meta: '' });
   const [selectedMarca, setSelectedMarca] = useState(null);
 
+  // Detecta a virada do mês (inclusive com o app aberto ou voltando do segundo plano)
+  useEffect(() => {
+    function verificarVirada() {
+      const atual = getMesRef();
+      setMesRef(anterior => (anterior === atual ? anterior : atual));
+    }
+
+    const timer = setInterval(verificarVirada, 60 * 1000);
+    document.addEventListener('visibilitychange', verificarVirada);
+    window.addEventListener('focus', verificarVirada);
+
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', verificarVirada);
+      window.removeEventListener('focus', verificarVirada);
+    };
+  }, []);
+
   useEffect(() => {
     if (currentUser?.id) {
       carregarDados();
@@ -57,7 +79,7 @@ export default function App() {
       setPedidos([]);
       setPositivacoes([]);
     }
-  }, [currentUser]);
+  }, [currentUser, mesRef]);
 
   async function carregarDados() {
     if (!currentUser?.id) return;
@@ -95,13 +117,15 @@ export default function App() {
     const { data: peds } = await supabase
       .from('pedidos')
       .select('*')
-      .eq('vendedor_id', currentUser.id);
+      .eq('vendedor_id', currentUser.id)
+      .eq('mes_ref', mesRef);
     setPedidos(peds || []);
 
     const { data: poss } = await supabase
       .from('positivacoes')
       .select('*')
-      .eq('vendedor_id', currentUser.id);
+      .eq('vendedor_id', currentUser.id)
+      .eq('mes_ref', mesRef);
     setPositivacoes(poss || []);
   }
 
@@ -240,10 +264,11 @@ export default function App() {
     if (existente) {
       await supabase.from('pedidos').update({ valor }).eq('id', existente.id);
     } else {
-      await supabase.from('pedidos').insert([{ 
+      await supabase.from('pedidos').insert([{
         vendedor_id: currentUser.id,
-        cliente_id: clienteId, 
-        valor 
+        cliente_id: clienteId,
+        valor,
+        mes_ref: mesRef
       }]);
     }
     setModalPedido(null);
@@ -252,7 +277,8 @@ export default function App() {
   }
 
   async function removerPedido(clienteId) {
-    await supabase.from('pedidos').delete().match({ cliente_id: clienteId, vendedor_id: currentUser.id });
+    // Só remove o pedido do mês corrente; meses anteriores ficam preservados
+    await supabase.from('pedidos').delete().match({ cliente_id: clienteId, vendedor_id: currentUser.id, mes_ref: mesRef });
     setModalPedido(null);
     carregarDados();
   }
@@ -272,14 +298,16 @@ export default function App() {
         id: 'temp-' + Date.now(),
         vendedor_id: currentUser.id,
         cliente_id: clienteId,
-        marca_id: marcaId
+        marca_id: marcaId,
+        mes_ref: mesRef
       };
       setPositivacoes([...positivacoes, tempItem]);
 
-      const { data } = await supabase.from('positivacoes').insert([{ 
+      const { data } = await supabase.from('positivacoes').insert([{
         vendedor_id: currentUser.id,
-        cliente_id: clienteId, 
-        marca_id: marcaId 
+        cliente_id: clienteId,
+        marca_id: marcaId,
+        mes_ref: mesRef
       }]).select().single();
 
       if (data) {
@@ -497,6 +525,10 @@ export default function App() {
                   <Edit3 size={12} /> Editar Meta
                 </button>
               </div>
+
+              <p className="text-[11px] text-slate-400 mb-2">
+                Mês de referência: <b className="text-slate-600 capitalize">{formatarMesRef(mesRef)}</b>
+              </p>
 
               <div className="flex items-baseline justify-between mb-2">
                 <div>
