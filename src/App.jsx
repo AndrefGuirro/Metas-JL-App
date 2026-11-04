@@ -927,7 +927,7 @@ export default function App() {
         {tab === 'marcas' && (
           <div className="space-y-4">
             <div className="flex justify-between items-center">
-              <h3 className="text-sm font-bold text-slate-800">Catálogo das 12 Marcas</h3>
+              <h3 className="text-sm font-bold text-slate-800">Metas de Positivações</h3>
               <button 
                 onClick={() => setModalNovaMarca(true)}
                 className="text-xs bg-blue-600 text-white font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"

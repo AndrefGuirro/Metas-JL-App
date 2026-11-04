@@ -968,48 +968,60 @@ export default function LevantamentoEstoque() {
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-4">
-      {/* TÍTULO E BOTÕES DE FILTRO */}
-      <div>
-        <h2 className="text-xl font-bold text-slate-800">Levantamento de Estoque</h2>
-        <div className="flex gap-2 mt-2">
-          <button
-            type="button"
-            onClick={() => setFiltroTipo('cadastrados')}
-            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
-              filtroTipo === 'cadastrados'
-                ? 'bg-slate-700 text-white border-slate-700 shadow-sm'
-                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
-            }`}
-          >
-            Apenas Cadastrados
-          </button>
-          <button
-            type="button"
-            onClick={() => setFiltroTipo('todos')}
-            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
-              filtroTipo === 'todos'
-                ? 'bg-slate-700 text-white border-slate-700 shadow-sm'
-                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
-            }`}
-          >
-            Todos Produtos
-          </button>
-        </div>
-      </div>
+    
+{/* TÍTULO E FILTROS */}
+<div>
+  <h2 className="text-xl font-bold text-slate-800">
+    Levantamento de Estoque
+  </h2>
 
-      {/* SELECT DO GRUPO / FABRICANTE */}
-      <div>
-        <label className="text-xs font-semibold text-slate-600 block mb-1">Grupo do Produto</label>
-        <select
-          value={filtroGrupo}
-          onChange={e => setFiltroGrupo(e.target.value)}
-          className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-600"
-        >
-          {gruposDisponiveis.map(g => (
-            <option key={g} value={g}>{g}</option>
-          ))}
-        </select>
-      </div>
+  <div className="flex items-center gap-2 mt-2">
+
+    {/* BOTÕES DE FILTRO */}
+    <div className="flex items-center gap-2 shrink-0">
+      <button
+        type="button"
+        onClick={() => setFiltroTipo('cadastrados')}
+        className={`px-3 py-2 rounded-full text-xs font-semibold border transition whitespace-nowrap ${
+          filtroTipo === 'cadastrados'
+            ? 'bg-slate-700 text-white border-slate-700 shadow-sm'
+            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+        }`}
+      >
+        Apenas Lançados
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setFiltroTipo('todos')}
+        className={`px-3 py-2 rounded-full text-xs font-semibold border transition whitespace-nowrap ${
+          filtroTipo === 'todos'
+            ? 'bg-slate-700 text-white border-slate-700 shadow-sm'
+            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+        }`}
+      >
+        Todos Produtos
+      </button>
+    </div>
+
+    {/* SELECT DE INDÚSTRIAS */}
+    <div className="flex-1 min-w-0">
+      <select
+        value={filtroGrupo}
+        onChange={e => setFiltroGrupo(e.target.value)}
+        className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-2.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-600"
+      >
+        {gruposDisponiveis.map(g => (
+          <option key={g} value={g}>
+            {g === 'Todos Produtos' ? 'Indústrias' : g}
+          </option>
+        ))}
+      </select>
+    </div>
+
+  </div>
+</div>
+
 
       {/* CAMPO DE BUSCA */}
       <div className="relative">
