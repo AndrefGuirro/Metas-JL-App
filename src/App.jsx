@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import LevantamentoEstoque from './LevantamentoEstoque.jsx';
+import AbasNav from './AbasNav.jsx';
 import { getMesRef, formatarMesRef } from './mesReferencia.js';
 import {
   Users, Award, Calendar, Search, 
@@ -64,6 +65,17 @@ export default function App() {
   const [novaMarca, setNovaMarca] = useState({ nome: '', meta: '' });
   const [selectedMarca, setSelectedMarca] = useState(null);
 
+  // Faturamento por marca: valor vendido (por cliente/marca/mês) e meta em R$ (por vendedor/marca)
+  const [vendasMarcas, setVendasMarcas] = useState([]);
+  const [metasMarcas, setMetasMarcas] = useState([]);
+  const [modalValorMarca, setModalValorMarca] = useState(null); // { cliente, marca }
+  const [valorMarcaInput, setValorMarcaInput] = useState('');
+  const [salvandoValorMarca, setSalvandoValorMarca] = useState(false);
+  const [selectedFatMarca, setSelectedFatMarca] = useState(null);
+  const [metaFatInput, setMetaFatInput] = useState('');
+  const [salvandoMetaFat, setSalvandoMetaFat] = useState(false);
+  const [metaFatSalva, setMetaFatSalva] = useState(false);
+
   // Detecta a virada do mês (inclusive com o app aberto ou voltando do segundo plano)
   useEffect(() => {
     function verificarVirada() {
@@ -89,6 +101,8 @@ export default function App() {
       setClientes([]);
       setPedidos([]);
       setPositivacoes([]);
+      setVendasMarcas([]);
+      setMetasMarcas([]);
     }
   }, [currentUser, mesRef]);
 
@@ -139,6 +153,21 @@ export default function App() {
       .eq('vendedor_id', currentUser.id)
       .eq('mes_ref', mesRef);
     setPositivacoes(poss || []);
+
+    // Valor vendido por marca (só do mês corrente)
+    const { data: vendas } = await supabase
+      .from('vendas_marcas')
+      .select('*')
+      .eq('vendedor_id', currentUser.id)
+      .eq('mes_ref', mesRef);
+    setVendasMarcas(vendas || []);
+
+    // Meta de faturamento por marca (vale para todos os meses, até o vendedor alterar)
+    const { data: metasFat } = await supabase
+      .from('metas_marcas')
+      .select('*')
+      .eq('vendedor_id', currentUser.id);
+    setMetasMarcas(metasFat || []);
   }
 
   // --- AUTENTICAÇÃO E RECUPERAÇÃO ---
@@ -263,6 +292,153 @@ export default function App() {
     : [];
   const totalModal = modalListaPedidos ? (totalPedidosPorCliente[modalListaPedidos.id] || 0) : 0;
 
+  // --- FATURAMENTO POR MARCA ---
+  const getVendaMarcaCliente = (clienteId, marcaId) =>
+    vendasMarcas.find(v => v.cliente_id === clienteId && v.marca_id === marcaId);
+
+  const getValorVendidoMarca = (marcaId) =>
+    vendasMarcas
+      .filter(v => v.marca_id === marcaId)
+      .reduce((acc, v) => acc + Number(v.valor || 0), 0);
+
+  const getMetaFatMarca = (marcaId) =>
+    Number(metasMarcas.find(m => m.marca_id === marcaId)?.meta_faturamento || 0);
+
+  const totalVendidoMarcas = marcas.reduce((acc, m) => acc + getValorVendidoMarca(m.id), 0);
+  const totalMetaMarcas = marcas.reduce((acc, m) => acc + getMetaFatMarca(m.id), 0);
+
+  function abrirValorMarca(cliente, marca) {
+    const atual = getVendaMarcaCliente(cliente.id, marca.id);
+    setModalValorMarca({ cliente, marca });
+    setValorMarcaInput(atual ? String(atual.valor) : '');
+  }
+
+  function fecharValorMarca() {
+    setModalValorMarca(null);
+    setValorMarcaInput('');
+  }
+
+  // Salva o valor vendido da marca para o cliente. Valor 0 (ou "Remover") apaga o lançamento.
+  async function salvarValorMarca(e, remover = false) {
+    if (e) e.preventDefault();
+    if (!modalValorMarca || !currentUser?.id || salvandoValorMarca) return;
+
+    const valor = remover ? 0 : parseFloat(valorMarcaInput);
+    if (isNaN(valor) || valor < 0) {
+      alert('Informe um valor válido (zero ou maior).');
+      return;
+    }
+
+    const { cliente, marca } = modalValorMarca;
+    const existente = getVendaMarcaCliente(cliente.id, marca.id);
+    setSalvandoValorMarca(true);
+
+    let erro = null;
+    if (valor === 0) {
+      if (existente) {
+        ({ error: erro } = await supabase
+          .from('vendas_marcas')
+          .delete()
+          .eq('id', existente.id)
+          .eq('vendedor_id', currentUser.id));
+        if (!erro) setVendasMarcas(prev => prev.filter(v => v.id !== existente.id));
+      }
+    } else if (existente) {
+      const { data, error } = await supabase
+        .from('vendas_marcas')
+        .update({ valor })
+        .eq('id', existente.id)
+        .eq('vendedor_id', currentUser.id)
+        .select()
+        .single();
+      erro = error;
+      if (!erro && data) setVendasMarcas(prev => prev.map(v => (v.id === existente.id ? data : v)));
+    } else {
+      const { data, error } = await supabase
+        .from('vendas_marcas')
+        .insert([{
+          vendedor_id: currentUser.id,
+          cliente_id: cliente.id,
+          marca_id: marca.id,
+          valor,
+          mes_ref: mesRef
+        }])
+        .select()
+        .single();
+      erro = error;
+      if (!erro && data) setVendasMarcas(prev => [...prev, data]);
+    }
+
+    setSalvandoValorMarca(false);
+    if (erro) {
+      alert('Erro ao salvar o valor vendido: ' + erro.message);
+      return;
+    }
+    fecharValorMarca();
+  }
+
+  function abrirDetalheFatMarca(marca) {
+    const meta = getMetaFatMarca(marca.id);
+    setSelectedFatMarca(marca);
+    setMetaFatInput(meta ? String(meta) : '');
+    setMetaFatSalva(false);
+  }
+
+  function fecharDetalheFatMarca() {
+    setSelectedFatMarca(null);
+    setMetaFatInput('');
+    setMetaFatSalva(false);
+  }
+
+  async function salvarMetaFatMarca(e) {
+    e.preventDefault();
+    if (!selectedFatMarca || !currentUser?.id || salvandoMetaFat) return;
+
+    const meta = metaFatInput === '' ? 0 : parseFloat(metaFatInput);
+    if (isNaN(meta) || meta < 0) {
+      alert('Informe uma meta válida (zero ou maior).');
+      return;
+    }
+
+    const existente = metasMarcas.find(m => m.marca_id === selectedFatMarca.id);
+    setSalvandoMetaFat(true);
+    setMetaFatSalva(false);
+
+    let erro = null;
+    if (existente) {
+      const { data, error } = await supabase
+        .from('metas_marcas')
+        .update({ meta_faturamento: meta })
+        .eq('id', existente.id)
+        .eq('vendedor_id', currentUser.id)
+        .select()
+        .single();
+      erro = error;
+      if (!erro && data) setMetasMarcas(prev => prev.map(m => (m.id === existente.id ? data : m)));
+    } else {
+      const { data, error } = await supabase
+        .from('metas_marcas')
+        .insert([{
+          vendedor_id: currentUser.id,
+          marca_id: selectedFatMarca.id,
+          meta_faturamento: meta
+        }])
+        .select()
+        .single();
+      erro = error;
+      if (!erro && data) setMetasMarcas(prev => [...prev, data]);
+    }
+
+    setSalvandoMetaFat(false);
+    if (erro) {
+      alert('Erro ao salvar a meta: ' + erro.message);
+      return;
+    }
+    setMetaFatInput(meta ? String(meta) : '');
+    setMetaFatSalva(true);
+    setTimeout(() => setMetaFatSalva(false), 2500);
+  }
+
   // --- GESTÃO DE CLIENTES E PEDIDOS ---
   async function cadastrarCliente(e) {
     e.preventDefault();
@@ -337,6 +513,8 @@ export default function App() {
     const filtro = { cliente_id: cliente.id, vendedor_id: currentUser.id };
     const { error: errPed } = await supabase.from('pedidos').delete().match(filtro);
     const { error: errPos } = errPed ? { error: null } : await supabase.from('positivacoes').delete().match(filtro);
+    // Valores vendidos por marca deste cliente (se a tabela ainda não existir, segue normalmente)
+    if (!errPed && !errPos) await supabase.from('vendas_marcas').delete().match(filtro);
     const { error: errCli } = (errPed || errPos)
       ? { error: null }
       : await supabase.from('clientes').delete().eq('id', cliente.id).eq('vendedor_id', currentUser.id);
@@ -618,37 +796,18 @@ export default function App() {
         </button>
       </header>
 
-      {/* ABAS */}
-      <nav className="flex bg-white border-b border-slate-200">
-        <button 
-          onClick={() => setTab('dashboard')} 
-          className={`flex-1 py-3 text-sm font-semibold text-center border-b-2 ${tab === 'dashboard' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}
-        >
-          Dashboard
-        </button>
-        <button 
-          onClick={() => setTab('clientes')} 
-          className={`flex-1 py-3 text-sm font-semibold text-center border-b-2 ${tab === 'clientes' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}
-        >
-          Clientes & Vendas
-        </button>
-        <button 
-          onClick={() => setTab('marcas')} 
-          className={`flex-1 py-3 text-sm font-semibold text-center border-b-2 ${tab === 'marcas' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}
-        >
-          Positivação Marcas
-        </button>
-        <button 
-  onClick={() => setTab('levantamento')} 
-  className={`flex-1 py-3 text-xs font-semibold text-center border-b-2 ${
-    tab === 'levantamento' 
-      ? 'border-blue-600 text-blue-600' 
-      : 'border-transparent text-slate-500'
-  }`}
->
-  Levantamento e Sugestão
-</button>
-      </nav>
+      {/* ABAS (rolagem lateral no celular) */}
+      <AbasNav
+        ativa={tab}
+        onChange={setTab}
+        abas={[
+          { id: 'dashboard', label: 'Dashboard' },
+          { id: 'clientes', label: 'Clientes & Vendas' },
+          { id: 'marcas', label: 'Positivação Marcas' },
+          { id: 'fat_marcas', label: 'Faturamento Marcas' },
+          { id: 'levantamento', label: 'Levantamento e Sugestão' },
+        ]}
+      />
 
       {/* CONTEÚDO */}
       <main className="p-4 space-y-4">
@@ -974,6 +1133,97 @@ export default function App() {
           </div>
         )}
 
+        {tab === 'fat_marcas' && (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-sm font-bold text-slate-800">Faturamento por Marca</h3>
+              <p className="text-[11px] text-slate-400">
+                Mês de referência: <b className="text-slate-600 capitalize">{formatarMesRef(mesRef)}</b>
+              </p>
+            </div>
+
+            {/* Resumo geral de todas as marcas */}
+            <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Total vendido nas marcas</span>
+              <div className="flex items-baseline justify-between mt-0.5">
+                <span className="text-xl font-extrabold text-slate-800">R$ {formatarMoeda(totalVendidoMarcas)}</span>
+                {totalMetaMarcas > 0 && (
+                  <span className="text-xs text-slate-500">de R$ {formatarMoeda(totalMetaMarcas)}</span>
+                )}
+              </div>
+              {totalMetaMarcas > 0 ? (
+                <>
+                  <div className="w-full bg-slate-200 rounded-full h-2 my-2 overflow-hidden">
+                    <div
+                      className="bg-emerald-500 h-2 rounded-full transition-all"
+                      style={{ width: `${Math.min(100, (totalVendidoMarcas / totalMetaMarcas) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-amber-700 font-semibold">
+                    {totalVendidoMarcas >= totalMetaMarcas
+                      ? 'Metas das marcas atingidas'
+                      : `Faltam R$ ${formatarMoeda(totalMetaMarcas - totalVendidoMarcas)} para as metas`}
+                  </p>
+                </>
+              ) : (
+                <p className="text-[11px] text-slate-400 mt-1">Toque em uma marca para definir a meta em R$.</p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
+              {marcas.map(marca => {
+                const meta = getMetaFatMarca(marca.id);
+                const vendido = getValorVendidoMarca(marca.id);
+                const falta = Math.max(0, meta - vendido);
+                const pct = meta > 0 ? Math.min(100, (vendido / meta) * 100) : 0;
+
+                return (
+                  <button
+                    type="button"
+                    key={marca.id}
+                    onClick={() => abrirDetalheFatMarca(marca)}
+                    className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm text-left hover:border-blue-400 active:bg-slate-50 transition"
+                  >
+                    <div className="flex justify-between items-center mb-1.5 gap-1">
+                      <h4 className="font-bold text-slate-800 text-xs truncate">{marca.nome}</h4>
+                      <ArrowRight size={10} className="text-slate-400 shrink-0" />
+                    </div>
+
+                    <div className="space-y-0.5 pt-1.5 border-t border-slate-100 text-[11px]">
+                      <div className="flex justify-between gap-1">
+                        <span className="text-slate-400">Meta</span>
+                        <span className="font-bold text-slate-700">{meta > 0 ? `R$ ${formatarMoeda(meta)}` : '—'}</span>
+                      </div>
+                      <div className="flex justify-between gap-1">
+                        <span className="text-emerald-600">Real</span>
+                        <span className="font-bold text-emerald-700">R$ {formatarMoeda(vendido)}</span>
+                      </div>
+                      <div className="flex justify-between gap-1">
+                        <span className="text-amber-600">Falta</span>
+                        <span className="font-bold text-amber-700">{meta > 0 ? `R$ ${formatarMoeda(falta)}` : '—'}</span>
+                      </div>
+                    </div>
+
+                    {meta > 0 && (
+                      <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2 overflow-hidden">
+                        <div className="bg-emerald-500 h-1.5 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {marcas.length === 0 && (
+              <p className="text-xs text-slate-400 text-center py-4">Nenhuma marca cadastrada.</p>
+            )}
+
+            <p className="text-[11px] text-slate-400">
+              As marcas são as mesmas da aba Positivação Marcas. O valor vendido é lançado em Clientes & Vendas, no botão Positivar de cada cliente.
+            </p>
+          </div>
+        )}
+
         {tab === 'levantamento' && <LevantamentoEstoque />}
 
       </main>
@@ -1236,29 +1486,52 @@ export default function App() {
               <button onClick={() => setModalPositivacao(null)} className="text-slate-400 p-1 text-sm">✕</button>
             </div>
             <p className="text-xs text-slate-500 mb-3">
-              Cliente: <b className="text-slate-700">{modalPositivacao.nome}</b>. Toque nas marcas para marcar/desmarcar:
+              Cliente: <b className="text-slate-700">{modalPositivacao.nome}</b>. Toque na parte de cima para positivar e na faixa de baixo para lançar o valor vendido:
             </p>
             
             {/* Grade 3 colunas para ver todas as 12 marcas de uma vez */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 overflow-y-auto pr-0.5 py-1">
               {marcas.map(marca => {
                 const isPositivada = positivacoes.some(p => p.cliente_id === modalPositivacao.id && p.marca_id === marca.id);
+                const venda = getVendaMarcaCliente(modalPositivacao.id, marca.id);
+                const temValor = !!venda && Number(venda.valor) > 0;
                 return (
-                  <button 
-                    key={marca.id} 
-                    type="button"
-                    onClick={() => alternarPositivacaoMarca(modalPositivacao.id, marca.id)}
-                    className={`py-3 px-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 text-center border active:scale-95 ${
-                      isPositivada 
-                        ? 'bg-blue-600 border-blue-600 text-white shadow-sm' 
-                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                  <div
+                    key={marca.id}
+                    className={`rounded-xl border overflow-hidden flex flex-col shadow-sm ${
+                      isPositivada ? 'border-blue-600' : 'border-slate-200'
                     }`}
                   >
-                    <span>{marca.nome}</span>
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${isPositivada ? 'bg-blue-500 text-white' : 'text-slate-400'}`}>
-                      {isPositivada ? '✓ Positivada' : '+ Positivar'}
-                    </span>
-                  </button>
+                    {/* Metade de cima: positivar (funciona como antes) */}
+                    <button
+                      type="button"
+                      onClick={() => alternarPositivacaoMarca(modalPositivacao.id, marca.id)}
+                      className={`flex-1 py-3 px-2 text-xs font-bold transition-colors flex flex-col items-center justify-center gap-1 text-center active:brightness-95 ${
+                        isPositivada
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span>{marca.nome}</span>
+                      <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${isPositivada ? 'bg-blue-500 text-white' : 'text-slate-400'}`}>
+                        {isPositivada ? '✓ Positivada' : '+ Positivar'}
+                      </span>
+                    </button>
+
+                    {/* Metade de baixo: lançar o valor vendido da marca */}
+                    <button
+                      type="button"
+                      onClick={() => abrirValorMarca(modalPositivacao, marca)}
+                      aria-label={`Valor vendido de ${marca.nome}`}
+                      className={`py-2.5 px-2 text-[11px] font-bold border-t transition-colors flex items-center justify-center gap-1 active:brightness-95 ${
+                        temValor
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                      }`}
+                    >
+                      {temValor ? `R$ ${formatarMoeda(venda.valor)}` : '+ Lançar valor'}
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -1269,6 +1542,208 @@ export default function App() {
             >
               Confirmar e Concluir
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: DETALHE DO FATURAMENTO DA MARCA (META EM R$ E CLIENTES) */}
+      {selectedFatMarca && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3">
+          <div className="bg-white w-full max-w-md rounded-2xl p-4 shadow-xl flex flex-col max-h-[90dvh]">
+            <div className="flex justify-between items-start gap-2">
+              <div className="min-w-0">
+                <h3 className="text-base font-bold text-slate-800 truncate">{selectedFatMarca.nome}</h3>
+                <p className="text-[11px] text-slate-400 capitalize">{formatarMesRef(mesRef)}</p>
+              </div>
+              <button
+                type="button"
+                onClick={fecharDetalheFatMarca}
+                aria-label="Fechar"
+                className="text-slate-400 p-2 -mr-2 -mt-2 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-0.5 mt-3">
+              {(() => {
+                const meta = getMetaFatMarca(selectedFatMarca.id);
+                const vendido = getValorVendidoMarca(selectedFatMarca.id);
+                const falta = Math.max(0, meta - vendido);
+                const pct = meta > 0 ? Math.min(100, (vendido / meta) * 100) : 0;
+                return (
+                  <div className="bg-slate-50 rounded-xl p-3">
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">Meta</span>
+                        <span className="text-xs font-bold text-slate-700">{meta > 0 ? `R$ ${formatarMoeda(meta)}` : '—'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-emerald-600 block">Vendido</span>
+                        <span className="text-xs font-bold text-emerald-700">R$ {formatarMoeda(vendido)}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-amber-600 block">Falta</span>
+                        <span className="text-xs font-bold text-amber-700">{meta > 0 ? `R$ ${formatarMoeda(falta)}` : '—'}</span>
+                      </div>
+                    </div>
+                    {meta > 0 && (
+                      <>
+                        <div className="w-full bg-slate-200 rounded-full h-2 mt-2.5 overflow-hidden">
+                          <div className="bg-emerald-500 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1 text-right">
+                          {pct.toFixed(1)}% da meta{vendido >= meta ? ' · meta atingida' : ''}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
+
+              <form onSubmit={salvarMetaFatMarca}>
+                <label className="text-xs font-bold text-slate-600 block mb-1">Meta de faturamento (R$)</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    inputMode="decimal"
+                    value={metaFatInput}
+                    onChange={e => { setMetaFatInput(e.target.value); setMetaFatSalva(false); }}
+                    placeholder="Ex: 10000"
+                    className="flex-1 min-w-0 border border-slate-300 rounded-lg p-2.5 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  />
+                  <button
+                    type="submit"
+                    disabled={salvandoMetaFat}
+                    className="bg-blue-600 text-white px-4 rounded-lg text-xs font-bold shrink-0 disabled:opacity-50"
+                  >
+                    {salvandoMetaFat ? 'Salvando...' : 'Salvar meta'}
+                  </button>
+                </div>
+                <p className="text-[11px] mt-1 h-4 text-emerald-600 font-semibold">
+                  {metaFatSalva ? 'Meta salva. Ela continua valendo nos próximos meses.' : ''}
+                </p>
+              </form>
+
+              <div>
+                <h4 className="text-xs font-bold text-emerald-700 uppercase mb-1">
+                  Clientes com valor lançado ({clientes.filter(c => getVendaMarcaCliente(c.id, selectedFatMarca.id)).length})
+                </h4>
+                <div className="space-y-1">
+                  {clientes
+                    .filter(c => getVendaMarcaCliente(c.id, selectedFatMarca.id))
+                    .map(c => (
+                      <div key={c.id} className="text-xs bg-emerald-50 text-emerald-900 p-2 rounded flex justify-between items-center gap-2">
+                        <span className="truncate">{c.nome}</span>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="font-bold">R$ {formatarMoeda(getVendaMarcaCliente(c.id, selectedFatMarca.id).valor)}</span>
+                          <button
+                            type="button"
+                            onClick={() => abrirValorMarca(c, selectedFatMarca)}
+                            className="text-[11px] text-blue-600 font-semibold py-1 px-1"
+                          >
+                            Editar
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  {clientes.every(c => !getVendaMarcaCliente(c.id, selectedFatMarca.id)) && (
+                    <p className="text-xs text-slate-400">Nenhum valor lançado neste mês.</p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-bold text-slate-500 uppercase mb-1">Clientes sem valor lançado</h4>
+                <div className="space-y-1">
+                  {clientes
+                    .filter(c => !getVendaMarcaCliente(c.id, selectedFatMarca.id))
+                    .map(c => (
+                      <div key={c.id} className="text-xs bg-slate-50 text-slate-700 p-2 rounded flex justify-between items-center gap-2">
+                        <span className="truncate">{c.nome}</span>
+                        <button
+                          type="button"
+                          onClick={() => abrirValorMarca(c, selectedFatMarca)}
+                          className="text-[11px] text-blue-600 font-semibold py-1 px-1 shrink-0"
+                        >
+                          + Lançar valor
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={fecharDetalheFatMarca}
+              className="w-full bg-slate-100 py-3 rounded-xl text-xs font-bold mt-3"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: LANÇAR VALOR VENDIDO DA MARCA PARA O CLIENTE (fica por cima das outras janelas) */}
+      {modalValorMarca && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-xl p-5 shadow-lg">
+            <div className="flex justify-between items-start mb-2">
+              <h3 className="text-base font-bold text-slate-800">Valor vendido</h3>
+              <button
+                type="button"
+                onClick={fecharValorMarca}
+                aria-label="Fechar"
+                className="text-slate-400 p-2 -mr-2 -mt-2 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mb-3">
+              Marca: <b className="text-slate-700">{modalValorMarca.marca.nome}</b>
+              <br />
+              Cliente: <b className="text-slate-700">{modalValorMarca.cliente.nome}</b>
+              <br />
+              Mês: <b className="text-slate-700 capitalize">{formatarMesRef(mesRef)}</b>
+            </p>
+            <form onSubmit={salvarValorMarca} className="space-y-3">
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                inputMode="decimal"
+                autoFocus
+                value={valorMarcaInput}
+                onChange={e => setValorMarcaInput(e.target.value)}
+                placeholder="Valor vendido da marca (R$)"
+                className="w-full border border-slate-300 rounded-lg p-2.5 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-600"
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={fecharValorMarca} className="flex-1 bg-slate-100 py-3 rounded-lg text-xs font-semibold">
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoValorMarca}
+                  className="flex-1 bg-blue-600 text-white py-3 rounded-lg text-xs font-semibold disabled:opacity-50"
+                >
+                  {salvandoValorMarca ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+              {getVendaMarcaCliente(modalValorMarca.cliente.id, modalValorMarca.marca.id) && (
+                <button
+                  type="button"
+                  onClick={() => salvarValorMarca(null, true)}
+                  disabled={salvandoValorMarca}
+                  className="w-full bg-rose-50 hover:bg-rose-100 text-rose-700 py-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 disabled:opacity-50"
+                >
+                  <Trash2 size={14} /> Remover valor
+                </button>
+              )}
+            </form>
           </div>
         </div>
       )}
