@@ -25,11 +25,30 @@ function identificadorParaEmail(identificador) {
   return identificador.includes('@') ? identificador : `${identificador}@${DOMINIO_INTERNO}`;
 }
 
+// Contato do administrador do sistema (abre o WhatsApp com uma mensagem pronta)
+const WHATSAPP_ADMIN =
+  'https://wa.me/5518997027699?text=' +
+  encodeURIComponent('Olá André, preciso de ajuda com meu acesso ao app Metas JL.');
+
+// Mostra "André" como link para o WhatsApp do administrador
+function LinkAdministrador() {
+  return (
+    <a
+      href={WHATSAPP_ADMIN}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="font-bold underline text-blue-700"
+    >
+      André
+    </a>
+  );
+}
+
 function traduzirErroAuth(erro) {
   const msg = (erro?.message || '').toLowerCase();
   if (msg.includes('invalid login credentials')) return 'Identificador ou senha incorretos.';
   if (msg.includes('already registered') || msg.includes('already been registered') || msg.includes('database error')) {
-    return 'Celular/E-mail já cadastrado. Se for você, fale com o administrador.';
+    return 'Celular/E-mail já cadastrado. Se for você, fale com o administrador do sistema';
   }
   if (msg.includes('password should be at least') || msg.includes('weak')) return 'A senha precisa ter pelo menos 6 caracteres.';
   if (msg.includes('rate limit') || msg.includes('too many')) return 'Muitas tentativas. Aguarde alguns minutos e tente de novo.';
@@ -205,7 +224,7 @@ export default function App() {
 
     if (error || !vend) {
       await supabase.auth.signOut();
-      throw new Error('Seu acesso ainda não foi liberado. Fale com o administrador.');
+      throw new Error('Seu acesso ainda não foi liberado. Fale com o administrador do sistema');
     }
     setCurrentUser({ id: vend.id, identificador: vend.identificador, is_admin: !!vend.is_admin });
   }
@@ -257,7 +276,7 @@ export default function App() {
         });
         if (error) throw new Error(traduzirErroAuth(error));
         if (!data.session) {
-          throw new Error('Cadastro criado, mas o projeto está exigindo confirmação por e-mail. Avise o administrador.');
+          throw new Error('Cadastro criado, mas o projeto está exigindo confirmação por e-mail. Avise o administrador do sistema');
         }
         await carregarVendedorDaSessao(data.session);
       } else if (authMode === 'login') {
@@ -758,6 +777,9 @@ export default function App() {
           {authError && (
             <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-700 p-2.5 rounded-lg text-xs">
               {authError}
+              {authError.endsWith('administrador do sistema') && (
+                <>{' '}<LinkAdministrador />.</>
+              )}
             </div>
           )}
           {authSuccess && (
@@ -769,7 +791,7 @@ export default function App() {
           {authMode === 'forgot' ? (
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600 space-y-2">
               <p className="font-semibold text-slate-700">Esqueceu a senha?</p>
-              <p>Fale com o administrador do sistema. Ele define uma nova senha para você, e depois você já pode entrar normalmente.</p>
+              <p>Fale com o administrador do sistema <LinkAdministrador />. Ele define uma nova senha para você, e depois você já pode entrar normalmente.</p>
             </div>
           ) : (
           <form onSubmit={handleAuth} className="space-y-3">
