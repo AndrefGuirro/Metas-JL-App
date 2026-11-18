@@ -8,23 +8,63 @@ import {
   Plus, Trash2, Edit3, Pencil, CheckCircle2, ChevronDown, ChevronUp, LogOut, ArrowRight, KeyRound, X 
 } from 'lucide-react';
 
+// O Supabase Auth exige e-mail. Quem entra com celular recebe um e-mail interno
+// (ex.: 18999999999@vendedor.metasjl.app) que nunca aparece para o vendedor.
+// ATENÇÃO: este domínio precisa ser o mesmo usado nos SQLs do banco.
+const DOMINIO_INTERNO = 'vendedor.metasjl.app';
+
+// Devolve o e-mail em minúsculas, ou só os dígitos do celular. Null se for inválido.
+function normalizarIdentificador(texto) {
+  const limpo = (texto || '').trim().toLowerCase();
+  if (limpo.includes('@')) return limpo;
+  const digitos = limpo.replace(/\D/g, '');
+  return digitos.length >= 8 ? digitos : null;
+}
+
+function identificadorParaEmail(identificador) {
+  return identificador.includes('@') ? identificador : `${identificador}@${DOMINIO_INTERNO}`;
+}
+
+// Contato do administrador do sistema (abre o WhatsApp com uma mensagem pronta)
+const WHATSAPP_ADMIN =
+  'https://wa.me/5518997027699?text=' +
+  encodeURIComponent('Olá André, preciso de ajuda com meu acesso ao app Metas JL.');
+
+// Mostra "André" como link para o WhatsApp do administrador
+function LinkAdministrador() {
+  return (
+    <a
+      href={WHATSAPP_ADMIN}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="font-bold underline text-blue-700"
+    >
+      André
+    </a>
+  );
+}
+
+function traduzirErroAuth(erro) {
+  const msg = (erro?.message || '').toLowerCase();
+  if (msg.includes('invalid login credentials')) return 'Identificador ou senha incorretos.';
+  if (msg.includes('already registered') || msg.includes('already been registered') || msg.includes('database error')) {
+    return 'Celular/E-mail já cadastrado. Se for você, fale com o administrador do sistema';
+  }
+  if (msg.includes('password should be at least') || msg.includes('weak')) return 'A senha precisa ter pelo menos 6 caracteres.';
+  if (msg.includes('rate limit') || msg.includes('too many')) return 'Muitas tentativas. Aguarde alguns minutos e tente de novo.';
+  if (msg.includes('invalid') && msg.includes('email')) return 'Celular/E-mail inválido.';
+  return erro?.message || 'Erro na operação.';
+}
+
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const salvo = localStorage.getItem('jl_vendedor_ativo');
-      if (!salvo) return null;
-      const parsed = JSON.parse(salvo);
-      return (parsed && parsed.id) ? parsed : null;
-    } catch {
-      return null;
-    }
-  });
+  // Usuário logado (vem da sessão do Supabase Auth) e controle da restauração da sessão
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authCarregando, setAuthCarregando] = useState(true);
 
   // Estados de Autenticação / Recuperação
   const [authMode, setAuthMode] = useState('login'); // 'login', 'register', 'forgot'
   const [authIdentificador, setAuthIdentificador] = useState('');
   const [authPassword, setAuthPassword] = useState('');
-  const [authPin, setAuthPin] = useState('');
   const [authError, setAuthError] = useState('');
   const [authSuccess, setAuthSuccess] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -173,72 +213,76 @@ export default function App() {
     setMetasMarcas(metasFat || []);
   }
 
-  // --- AUTENTICAÇÃO E RECUPERAÇÃO ---
+  // --- AUTENTICAÇÃO (Supabase Auth) ---
+  // Busca o cadastro do vendedor ligado ao usuário autenticado.
+  async function carregarVendedorDaSessao(session) {
+    const { data: vend, error } = await supabase
+      .from('vendedores')
+      .select('id, identificador, is_admin')
+      .eq('auth_user_id', session.user.id)
+      .maybeSingle();
+
+    if (error || !vend) {
+      await supabase.auth.signOut();
+      throw new Error('Seu acesso ainda não foi liberado. Fale com o administrador do sistema');
+    }
+    setCurrentUser({ id: vend.id, identificador: vend.identificador, is_admin: !!vend.is_admin });
+  }
+
+  // Restaura a sessão ao abrir o app e desloga se a sessão expirar
+  useEffect(() => {
+    let ativo = true;
+
+    try { localStorage.removeItem('jl_vendedor_ativo'); } catch { /* login antigo, não é mais usado */ }
+
+    supabase.auth.getSession()
+      .then(async ({ data }) => {
+        if (data.session && ativo) await carregarVendedorDaSessao(data.session);
+      })
+      .catch(err => { if (ativo) setAuthError(err.message || 'Erro ao restaurar a sessão.'); })
+      .finally(() => { if (ativo) setAuthCarregando(false); });
+
+    const { data: assinatura } = supabase.auth.onAuthStateChange(evento => {
+      if (evento === 'SIGNED_OUT' && ativo) setCurrentUser(null);
+    });
+
+    return () => {
+      ativo = false;
+      assinatura.subscription.unsubscribe();
+    };
+  }, []);
+
   async function handleAuth(e) {
     e.preventDefault();
     setAuthError('');
     setAuthSuccess('');
     setAuthLoading(true);
 
-    const idLimpo = authIdentificador.trim().toLowerCase();
-    const pass = authPassword.trim();
-    const pin = authPin.trim();
-
     try {
+      const identificador = normalizarIdentificador(authIdentificador);
+      if (!identificador) {
+        throw new Error('Informe o celular com DDD (ex: 18999999999) ou um e-mail.');
+      }
+      const email = identificadorParaEmail(identificador);
+      const pass = authPassword.trim();
+
       if (authMode === 'register') {
-        const { data: existente } = await supabase
-          .from('vendedores')
-          .select('id')
-          .eq('identificador', idLimpo)
-          .maybeSingle();
+        if (pass.length < 6) throw new Error('A senha precisa ter pelo menos 6 caracteres.');
 
-        if (existente) throw new Error('Celular/E-mail já cadastrado.');
-
-        const { data: novo, error: insErr } = await supabase
-          .from('vendedores')
-          .insert([{ identificador: idLimpo, senha: pass, recuperacao_pin: pin }])
-          .select()
-          .single();
-
-        if (insErr) throw insErr;
-
-        const sessionObj = { id: novo.id, identificador: novo.identificador };
-        localStorage.setItem('jl_vendedor_ativo', JSON.stringify(sessionObj));
-        setCurrentUser(sessionObj);
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password: pass,
+          options: { data: { identificador } }
+        });
+        if (error) throw new Error(traduzirErroAuth(error));
+        if (!data.session) {
+          throw new Error('Cadastro criado, mas o projeto está exigindo confirmação por e-mail. Avise o administrador do sistema');
+        }
+        await carregarVendedorDaSessao(data.session);
       } else if (authMode === 'login') {
-        const { data: user, error: selErr } = await supabase
-          .from('vendedores')
-          .select('id, identificador')
-          .eq('identificador', idLimpo)
-          .eq('senha', pass)
-          .maybeSingle();
-
-        if (selErr) throw selErr;
-        if (!user) throw new Error('Identificador ou senha incorretos.');
-
-        const sessionObj = { id: user.id, identificador: user.identificador };
-        localStorage.setItem('jl_vendedor_ativo', JSON.stringify(sessionObj));
-        setCurrentUser(sessionObj);
-      } else if (authMode === 'forgot') {
-        // Redefine a senha verificando o PIN de segurança
-        const { data: user, error: pinErr } = await supabase
-          .from('vendedores')
-          .select('id')
-          .eq('identificador', idLimpo)
-          .eq('recuperacao_pin', pin)
-          .maybeSingle();
-
-        if (pinErr || !user) throw new Error('Identificador ou PIN de recuperação incorretos.');
-
-        const { error: updErr } = await supabase
-          .from('vendedores')
-          .update({ senha: pass })
-          .eq('id', user.id);
-
-        if (updErr) throw updErr;
-
-        setAuthSuccess('Senha redefinida com sucesso! Faça login com sua nova senha.');
-        setAuthMode('login');
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+        if (error) throw new Error(traduzirErroAuth(error));
+        await carregarVendedorDaSessao(data.session);
       }
     } catch (err) {
       setAuthError(err.message || 'Erro na operação.');
@@ -247,8 +291,8 @@ export default function App() {
     }
   }
 
-  function handleLogout() {
-    localStorage.removeItem('jl_vendedor_ativo');
+  async function handleLogout() {
+    await supabase.auth.signOut();
     setCurrentUser(null);
   }
 
@@ -711,6 +755,14 @@ export default function App() {
   }
 
   // --- ECRÃ DE AUTENTICAÇÃO ---
+  if (authCarregando) {
+    return (
+      <div className="min-h-[100dvh] bg-slate-50 flex items-center justify-center">
+        <p className="text-sm text-slate-400">Carregando...</p>
+      </div>
+    );
+  }
+
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -725,6 +777,9 @@ export default function App() {
           {authError && (
             <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-700 p-2.5 rounded-lg text-xs">
               {authError}
+              {authError.endsWith('administrador do sistema') && (
+                <>{' '}<LinkAdministrador />.</>
+              )}
             </div>
           )}
           {authSuccess && (
@@ -733,6 +788,12 @@ export default function App() {
             </div>
           )}
 
+          {authMode === 'forgot' ? (
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600 space-y-2">
+              <p className="font-semibold text-slate-700">Esqueceu a senha?</p>
+              <p>Fale com o administrador do sistema <LinkAdministrador />. Ele define uma nova senha para você, e depois você já pode entrar normalmente.</p>
+            </div>
+          ) : (
           <form onSubmit={handleAuth} className="space-y-3">
             <div>
               <label className="text-xs font-semibold text-slate-600 block mb-1">Celular ou E-mail</label>
@@ -746,32 +807,15 @@ export default function App() {
               />
             </div>
 
-            {authMode !== 'login' && (
-              <div>
-                <label className="text-xs font-semibold text-slate-600 block mb-1">
-                  PIN de Recuperação (4 dígitos)
-                </label>
-                <input 
-                  type="text" 
-                  maxLength={6}
-                  required
-                  placeholder="Ex: 1234 (usado para recuperar a senha)" 
-                  value={authPin}
-                  onChange={e => setAuthPin(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
-                />
-              </div>
-            )}
-
             <div>
               <label className="text-xs font-semibold text-slate-600 block mb-1">
-                {authMode === 'forgot' ? 'Nova Senha' : 'Senha'}
+                Senha
               </label>
               <input 
                 type="password" 
                 required
-                minLength={4}
-                placeholder="Digite sua senha" 
+                minLength={6}
+                placeholder={authMode === 'register' ? 'Mínimo de 6 caracteres' : 'Digite sua senha'} 
                 value={authPassword}
                 onChange={e => setAuthPassword(e.target.value)}
                 className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
@@ -784,10 +828,10 @@ export default function App() {
               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg text-sm transition disabled:opacity-50 mt-1"
             >
               {authLoading ? 'Processando...' : 
-                authMode === 'register' ? 'Cadastrar e Entrar' : 
-                authMode === 'forgot' ? 'Redefinir e Salvar' : 'Entrar no Sistema'}
+                authMode === 'register' ? 'Cadastrar e Entrar' : 'Entrar no Sistema'}
             </button>
           </form>
+          )}
 
           <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col gap-1.5 text-center">
             {authMode === 'login' ? (
@@ -1123,12 +1167,14 @@ export default function App() {
           <div className="space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="text-sm font-bold text-slate-800">Metas de Positivações</h3>
+              {currentUser.is_admin && (
               <button 
                 onClick={() => setModalNovaMarca(true)}
                 className="text-xs bg-blue-600 text-white font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1"
               >
                 <Plus size={14} /> Nova Marca
               </button>
+              )}
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
@@ -1901,6 +1947,7 @@ export default function App() {
               <button onClick={() => setSelectedMarca(null)} className="text-slate-400">✕</button>
             </div>
             
+            {currentUser.is_admin ? (
             <div className="flex items-center gap-2 mb-3">
               <span className="text-xs text-slate-500">Meta Geral:</span>
               <input 
@@ -1913,6 +1960,12 @@ export default function App() {
                 <Trash2 size={12} /> Excluir Marca
               </button>
             </div>
+            ) : (
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs text-slate-500">Meta Geral:</span>
+              <b className="text-xs text-slate-700">{selectedMarca.meta_positivacoes || 0}</b>
+            </div>
+            )}
 
             <div className="flex-1 overflow-y-auto space-y-4 pr-1">
               <div>
