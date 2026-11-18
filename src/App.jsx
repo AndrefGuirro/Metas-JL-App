@@ -71,6 +71,8 @@ export default function App() {
   const [modalValorMarca, setModalValorMarca] = useState(null); // { cliente, marca }
   const [valorMarcaInput, setValorMarcaInput] = useState('');
   const [salvandoValorMarca, setSalvandoValorMarca] = useState(false);
+  const [vendaEmEdicao, setVendaEmEdicao] = useState(null);
+  const [valorEdicaoVenda, setValorEdicaoVenda] = useState('');
   const [selectedFatMarca, setSelectedFatMarca] = useState(null);
   const [metaFatInput, setMetaFatInput] = useState('');
   const [salvandoMetaFat, setSalvandoMetaFat] = useState(false);
@@ -159,7 +161,8 @@ export default function App() {
       .from('vendas_marcas')
       .select('*')
       .eq('vendedor_id', currentUser.id)
-      .eq('mes_ref', mesRef);
+      .eq('mes_ref', mesRef)
+      .order('id'); // ordem estável: editar um lançamento não muda a posição
     setVendasMarcas(vendas || []);
 
     // Meta de faturamento por marca (vale para todos os meses, até o vendedor alterar)
@@ -293,8 +296,12 @@ export default function App() {
   const totalModal = modalListaPedidos ? (totalPedidosPorCliente[modalListaPedidos.id] || 0) : 0;
 
   // --- FATURAMENTO POR MARCA ---
-  const getVendaMarcaCliente = (clienteId, marcaId) =>
-    vendasMarcas.find(v => v.cliente_id === clienteId && v.marca_id === marcaId);
+  // Um cliente pode ter vários lançamentos da mesma marca no mês (o total é a soma deles)
+  const getVendasMarcaCliente = (clienteId, marcaId) =>
+    vendasMarcas.filter(v => v.cliente_id === clienteId && v.marca_id === marcaId);
+
+  const getTotalMarcaCliente = (clienteId, marcaId) =>
+    getVendasMarcaCliente(clienteId, marcaId).reduce((acc, v) => acc + Number(v.valor || 0), 0);
 
   const getValorVendidoMarca = (marcaId) =>
     vendasMarcas
@@ -308,73 +315,102 @@ export default function App() {
   const totalMetaMarcas = marcas.reduce((acc, m) => acc + getMetaFatMarca(m.id), 0);
 
   function abrirValorMarca(cliente, marca) {
-    const atual = getVendaMarcaCliente(cliente.id, marca.id);
     setModalValorMarca({ cliente, marca });
-    setValorMarcaInput(atual ? String(atual.valor) : '');
+    setValorMarcaInput('');
+    setVendaEmEdicao(null);
+    setValorEdicaoVenda('');
   }
 
   function fecharValorMarca() {
     setModalValorMarca(null);
     setValorMarcaInput('');
+    setVendaEmEdicao(null);
+    setValorEdicaoVenda('');
   }
 
-  // Salva o valor vendido da marca para o cliente. Valor 0 (ou "Remover") apaga o lançamento.
-  async function salvarValorMarca(e, remover = false) {
-    if (e) e.preventDefault();
+  // Adiciona um novo lançamento (soma com os que já existem para a marca/cliente no mês)
+  async function adicionarValorMarca(e) {
+    e.preventDefault();
     if (!modalValorMarca || !currentUser?.id || salvandoValorMarca) return;
 
-    const valor = remover ? 0 : parseFloat(valorMarcaInput);
-    if (isNaN(valor) || valor < 0) {
-      alert('Informe um valor válido (zero ou maior).');
+    const valor = parseFloat(valorMarcaInput);
+    if (isNaN(valor) || valor <= 0) {
+      alert('Informe um valor maior que zero.');
       return;
     }
 
     const { cliente, marca } = modalValorMarca;
-    const existente = getVendaMarcaCliente(cliente.id, marca.id);
     setSalvandoValorMarca(true);
-
-    let erro = null;
-    if (valor === 0) {
-      if (existente) {
-        ({ error: erro } = await supabase
-          .from('vendas_marcas')
-          .delete()
-          .eq('id', existente.id)
-          .eq('vendedor_id', currentUser.id));
-        if (!erro) setVendasMarcas(prev => prev.filter(v => v.id !== existente.id));
-      }
-    } else if (existente) {
-      const { data, error } = await supabase
-        .from('vendas_marcas')
-        .update({ valor })
-        .eq('id', existente.id)
-        .eq('vendedor_id', currentUser.id)
-        .select()
-        .single();
-      erro = error;
-      if (!erro && data) setVendasMarcas(prev => prev.map(v => (v.id === existente.id ? data : v)));
-    } else {
-      const { data, error } = await supabase
-        .from('vendas_marcas')
-        .insert([{
-          vendedor_id: currentUser.id,
-          cliente_id: cliente.id,
-          marca_id: marca.id,
-          valor,
-          mes_ref: mesRef
-        }])
-        .select()
-        .single();
-      erro = error;
-      if (!erro && data) setVendasMarcas(prev => [...prev, data]);
-    }
-
+    const { data, error } = await supabase
+      .from('vendas_marcas')
+      .insert([{
+        vendedor_id: currentUser.id,
+        cliente_id: cliente.id,
+        marca_id: marca.id,
+        valor,
+        mes_ref: mesRef
+      }])
+      .select()
+      .single();
     setSalvandoValorMarca(false);
-    if (erro) {
-      alert('Erro ao salvar o valor vendido: ' + erro.message);
+
+    if (error) {
+      if (error.code === '23505') {
+        alert('O banco de dados ainda não aceita mais de um lançamento da mesma marca para o mesmo cliente. É preciso aplicar a atualização no Supabase.');
+      } else {
+        alert('Erro ao salvar o valor vendido: ' + error.message);
+      }
       return;
     }
-    fecharValorMarca();
+    if (data) setVendasMarcas(prev => [...prev, data]);
+    setValorMarcaInput('');
+  }
+
+  async function salvarEdicaoVendaMarca(vendaId) {
+    if (!currentUser?.id) return;
+
+    const valor = parseFloat(valorEdicaoVenda);
+    if (isNaN(valor) || valor <= 0) {
+      alert('Informe um valor maior que zero. Para remover o lançamento, use Excluir.');
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('vendas_marcas')
+      .update({ valor })
+      .eq('id', vendaId)
+      .eq('vendedor_id', currentUser.id)
+      .select()
+      .single();
+
+    if (error) {
+      alert('Erro ao salvar o valor vendido: ' + error.message);
+      return;
+    }
+    if (data) setVendasMarcas(prev => prev.map(v => (v.id === vendaId ? data : v)));
+    setVendaEmEdicao(null);
+    setValorEdicaoVenda('');
+  }
+
+  async function excluirVendaMarca(venda) {
+    if (!currentUser?.id) return;
+    if (!confirm(`Excluir o lançamento de R$ ${formatarMoeda(venda.valor)}?`)) return;
+
+    const { error } = await supabase
+      .from('vendas_marcas')
+      .delete()
+      .eq('id', venda.id)
+      .eq('vendedor_id', currentUser.id);
+
+    if (error) {
+      alert('Erro ao excluir o lançamento: ' + error.message);
+      return;
+    }
+    if (vendaEmEdicao === venda.id) {
+      setVendaEmEdicao(null);
+      setValorEdicaoVenda('');
+    }
+    setVendasMarcas(prev => prev.filter(v => v.id !== venda.id));
   }
 
   function abrirDetalheFatMarca(marca) {
@@ -1493,8 +1529,9 @@ export default function App() {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 overflow-y-auto pr-0.5 py-1">
               {marcas.map(marca => {
                 const isPositivada = positivacoes.some(p => p.cliente_id === modalPositivacao.id && p.marca_id === marca.id);
-                const venda = getVendaMarcaCliente(modalPositivacao.id, marca.id);
-                const temValor = !!venda && Number(venda.valor) > 0;
+                const lancamentos = getVendasMarcaCliente(modalPositivacao.id, marca.id);
+                const totalValor = lancamentos.reduce((acc, v) => acc + Number(v.valor || 0), 0);
+                const temValor = lancamentos.length > 0;
                 return (
                   <div
                     key={marca.id}
@@ -1529,7 +1566,9 @@ export default function App() {
                           : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
                       }`}
                     >
-                      {temValor ? `R$ ${formatarMoeda(venda.valor)}` : '+ Lançar valor'}
+                      {temValor
+                        ? `R$ ${formatarMoeda(totalValor)}${lancamentos.length > 1 ? ` (${lancamentos.length})` : ''}`
+                        : '+ Lançar valor'}
                     </button>
                   </div>
                 );
@@ -1629,27 +1668,32 @@ export default function App() {
 
               <div>
                 <h4 className="text-xs font-bold text-emerald-700 uppercase mb-1">
-                  Clientes com valor lançado ({clientes.filter(c => getVendaMarcaCliente(c.id, selectedFatMarca.id)).length})
+                  Clientes com valor lançado ({clientes.filter(c => getVendasMarcaCliente(c.id, selectedFatMarca.id).length > 0).length})
                 </h4>
                 <div className="space-y-1">
                   {clientes
-                    .filter(c => getVendaMarcaCliente(c.id, selectedFatMarca.id))
+                    .filter(c => getVendasMarcaCliente(c.id, selectedFatMarca.id).length > 0)
                     .map(c => (
                       <div key={c.id} className="text-xs bg-emerald-50 text-emerald-900 p-2 rounded flex justify-between items-center gap-2">
                         <span className="truncate">{c.nome}</span>
                         <div className="flex items-center gap-3 shrink-0">
-                          <span className="font-bold">R$ {formatarMoeda(getVendaMarcaCliente(c.id, selectedFatMarca.id).valor)}</span>
+                          <span className="font-bold">
+                            R$ {formatarMoeda(getTotalMarcaCliente(c.id, selectedFatMarca.id))}
+                            {getVendasMarcaCliente(c.id, selectedFatMarca.id).length > 1 && (
+                              <span className="font-normal text-emerald-700"> ({getVendasMarcaCliente(c.id, selectedFatMarca.id).length})</span>
+                            )}
+                          </span>
                           <button
                             type="button"
                             onClick={() => abrirValorMarca(c, selectedFatMarca)}
                             className="text-[11px] text-blue-600 font-semibold py-1 px-1"
                           >
-                            Editar
+                            Ver / editar
                           </button>
                         </div>
                       </div>
                     ))}
-                  {clientes.every(c => !getVendaMarcaCliente(c.id, selectedFatMarca.id)) && (
+                  {clientes.every(c => getVendasMarcaCliente(c.id, selectedFatMarca.id).length === 0) && (
                     <p className="text-xs text-slate-400">Nenhum valor lançado neste mês.</p>
                   )}
                 </div>
@@ -1659,7 +1703,7 @@ export default function App() {
                 <h4 className="text-xs font-bold text-slate-500 uppercase mb-1">Clientes sem valor lançado</h4>
                 <div className="space-y-1">
                   {clientes
-                    .filter(c => !getVendaMarcaCliente(c.id, selectedFatMarca.id))
+                    .filter(c => getVendasMarcaCliente(c.id, selectedFatMarca.id).length === 0)
                     .map(c => (
                       <div key={c.id} className="text-xs bg-slate-50 text-slate-700 p-2 rounded flex justify-between items-center gap-2">
                         <span className="truncate">{c.nome}</span>
@@ -1687,66 +1731,131 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: LANÇAR VALOR VENDIDO DA MARCA PARA O CLIENTE (fica por cima das outras janelas) */}
-      {modalValorMarca && (
-        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-sm rounded-xl p-5 shadow-lg">
-            <div className="flex justify-between items-start mb-2">
-              <h3 className="text-base font-bold text-slate-800">Valor vendido</h3>
-              <button
-                type="button"
-                onClick={fecharValorMarca}
-                aria-label="Fechar"
-                className="text-slate-400 p-2 -mr-2 -mt-2 text-sm"
-              >
-                ✕
-              </button>
-            </div>
-            <p className="text-xs text-slate-500 mb-3">
-              Marca: <b className="text-slate-700">{modalValorMarca.marca.nome}</b>
-              <br />
-              Cliente: <b className="text-slate-700">{modalValorMarca.cliente.nome}</b>
-              <br />
-              Mês: <b className="text-slate-700 capitalize">{formatarMesRef(mesRef)}</b>
-            </p>
-            <form onSubmit={salvarValorMarca} className="space-y-3">
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                inputMode="decimal"
-                autoFocus
-                value={valorMarcaInput}
-                onChange={e => setValorMarcaInput(e.target.value)}
-                placeholder="Valor vendido da marca (R$)"
-                className="w-full border border-slate-300 rounded-lg p-2.5 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-600"
-              />
-              <div className="flex gap-2">
-                <button type="button" onClick={fecharValorMarca} className="flex-1 bg-slate-100 py-3 rounded-lg text-xs font-semibold">
-                  Cancelar
+      {/* MODAL: VALORES VENDIDOS DA MARCA PARA O CLIENTE (vários lançamentos, com total; fica por cima das outras janelas) */}
+      {modalValorMarca && (() => {
+        const { cliente, marca } = modalValorMarca;
+        const lancamentos = getVendasMarcaCliente(cliente.id, marca.id);
+        const total = getTotalMarcaCliente(cliente.id, marca.id);
+        return (
+          <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-3">
+            <div className="bg-white w-full max-w-md rounded-2xl p-4 shadow-xl flex flex-col max-h-[90dvh]">
+              <div className="flex justify-between items-start gap-2">
+                <div className="min-w-0">
+                  <h3 className="text-base font-bold text-slate-800 truncate">Valor vendido: {marca.nome}</h3>
+                  <p className="text-xs text-slate-500 truncate">{cliente.nome}</p>
+                  <p className="text-[11px] text-slate-400 capitalize">{formatarMesRef(mesRef)}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={fecharValorMarca}
+                  aria-label="Fechar"
+                  className="text-slate-400 p-2 -mr-2 -mt-1 text-sm"
+                >
+                  ✕
                 </button>
+              </div>
+
+              <div className="bg-emerald-50 rounded-xl p-3 flex justify-between items-center my-3">
+                <div>
+                  <span className="text-[10px] font-bold text-emerald-700 uppercase block">Total vendido da marca</span>
+                  <span className="text-[11px] text-emerald-700">
+                    {lancamentos.length} {lancamentos.length === 1 ? 'lançamento' : 'lançamentos'}
+                  </span>
+                </div>
+                <span className="text-lg font-extrabold text-emerald-800">R$ {formatarMoeda(total)}</span>
+              </div>
+
+              <form onSubmit={adicionarValorMarca} className="flex gap-2 mb-3">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  inputMode="decimal"
+                  autoFocus={lancamentos.length === 0}
+                  placeholder={lancamentos.length === 0 ? 'Valor vendido (R$)' : 'Novo valor (R$)'}
+                  value={valorMarcaInput}
+                  onChange={e => setValorMarcaInput(e.target.value)}
+                  className="flex-1 min-w-0 border border-slate-300 rounded-lg p-2.5 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
                 <button
                   type="submit"
                   disabled={salvandoValorMarca}
-                  className="flex-1 bg-blue-600 text-white py-3 rounded-lg text-xs font-semibold disabled:opacity-50"
+                  className="bg-blue-600 text-white px-3 rounded-lg text-xs font-bold flex items-center gap-1 shrink-0 disabled:opacity-50"
                 >
-                  {salvandoValorMarca ? 'Salvando...' : 'Salvar'}
+                  <Plus size={16} /> {salvandoValorMarca ? 'Salvando...' : 'Adicionar'}
                 </button>
+              </form>
+
+              <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-0.5">
+                {lancamentos.length === 0 && (
+                  <p className="text-xs text-slate-400 text-center py-4">Nenhum valor lançado.</p>
+                )}
+                {lancamentos.map(v => (
+                  <div key={v.id} className="border border-slate-200 rounded-xl p-2.5">
+                    {vendaEmEdicao === v.id ? (
+                      <div className="space-y-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          inputMode="decimal"
+                          value={valorEdicaoVenda}
+                          onChange={e => setValorEdicaoVenda(e.target.value)}
+                          className="w-full border border-slate-300 rounded-lg p-2.5 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-600"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => { setVendaEmEdicao(null); setValorEdicaoVenda(''); }}
+                            className="flex-1 bg-slate-100 py-2.5 rounded-lg text-xs font-semibold"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => salvarEdicaoVendaMarca(v.id)}
+                            className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-xs font-semibold"
+                          >
+                            Salvar
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-sm font-bold text-emerald-700">R$ {formatarMoeda(v.valor)}</span>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => { setVendaEmEdicao(v.id); setValorEdicaoVenda(String(v.valor)); }}
+                            className="bg-slate-50 hover:bg-slate-100 text-slate-700 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1"
+                          >
+                            <Edit3 size={14} /> Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => excluirVendaMarca(v)}
+                            className="bg-rose-50 hover:bg-rose-100 text-rose-700 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1"
+                          >
+                            <Trash2 size={14} /> Excluir
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
-              {getVendaMarcaCliente(modalValorMarca.cliente.id, modalValorMarca.marca.id) && (
-                <button
-                  type="button"
-                  onClick={() => salvarValorMarca(null, true)}
-                  disabled={salvandoValorMarca}
-                  className="w-full bg-rose-50 hover:bg-rose-100 text-rose-700 py-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 disabled:opacity-50"
-                >
-                  <Trash2 size={14} /> Remover valor
-                </button>
-              )}
-            </form>
+
+              <button
+                type="button"
+                onClick={fecharValorMarca}
+                className="w-full bg-slate-100 py-3 rounded-xl text-xs font-bold mt-3"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* MODAL: NOVA MARCA */}
       {modalNovaMarca && (
