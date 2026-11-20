@@ -24,9 +24,22 @@ Aplicativo web progressivo (PWA) para **acompanhamento diário de metas e vendas
 - Vários pedidos por cliente no mesmo mês, cada um com opção de editar ou excluir, e o total do cliente em destaque.
 
 ### Positivação de marcas
-- Cadastro de marcas com meta de positivações.
+- Cadastro de marcas com meta de positivações (gerenciado por administradores).
 - Marcação rápida das marcas positivadas em cada cliente, com atualização instantânea na tela.
 - Acompanhamento por marca: meta, realizado e quanto falta, com a lista de clientes positivados e não positivados.
+
+### Faturamento por marca
+- Na janela de positivação, cada marca é um card dividido em duas áreas: positivar e lançar o valor vendido.
+- Vários lançamentos de valor por marca e cliente no mesmo mês, cada um com opção de editar ou excluir e o total somado.
+- Aba **Faturamento Marcas** com meta em R$ por marca (editável), valor vendido no mês e quanto falta, além da lista de clientes com e sem valor lançado.
+- A meta em R$ é mantida entre os meses, e o valor vendido começa zerado a cada mês.
+
+### Acesso e segurança
+- Login por celular ou e-mail, com autenticação gerenciada e senhas armazenadas de forma criptografada.
+- Sessão mantida no aparelho, sem precisar entrar de novo a cada uso.
+- Isolamento dos dados com **Row Level Security (RLS)**: cada vendedor só lê e altera os próprios clientes, pedidos, positivações, valores e metas.
+- Perfil de administrador, o único que pode cadastrar, editar e excluir marcas, que são compartilhadas entre os vendedores.
+- Redefinição de senha feita pelo administrador, com link direto para contato pelo WhatsApp.
 
 ### Levantamento de estoque e sugestão de pedido
 - Catálogo com centenas de produtos, organizado por fabricante.
@@ -48,7 +61,7 @@ Aplicativo web progressivo (PWA) para **acompanhamento diário de metas e vendas
 | Build e dev server | [Vite](https://vite.dev/) |
 | Estilização | [Tailwind CSS 3](https://tailwindcss.com/) e PostCSS |
 | Ícones | [Lucide React](https://lucide.dev/) |
-| Banco de dados | PostgreSQL |
+| Banco de dados e autenticação | PostgreSQL, com autenticação gerenciada e Row Level Security (RLS) |
 | PWA | [vite-plugin-pwa](https://vite-pwa-org.netlify.app/) (service worker e manifesto) |
 | Qualidade de código | [Oxlint](https://oxc.rs/docs/guide/usage/linter) |
 | Hospedagem | [Vercel](https://vercel.com/) |
@@ -60,6 +73,7 @@ Aplicativo web progressivo (PWA) para **acompanhamento diário de metas e vendas
 ├── public/                     # Ícones e logos do PWA
 ├── src/
 │   ├── App.jsx                 # Login, dashboard, clientes, pedidos e marcas
+│   ├── AbasNav.jsx             # Barra de abas com rolagem lateral (mobile)
 │   ├── LevantamentoEstoque.jsx # Levantamento de estoque e sugestão de pedido
 │   ├── mesReferencia.js        # Utilitários do mês de referência (AAAA-MM)
 │   ├── supabaseClient.js       # Cliente do Supabase
@@ -79,12 +93,16 @@ O app usa as seguintes tabelas no banco de dados:
 
 | Tabela | Finalidade |
 | --- | --- |
-| `vendedores` | Contas de acesso dos vendedores |
+| `vendedores` | Cadastro dos vendedores, ligado ao login, com o indicador de administrador |
 | `app_settings` | Meta de faturamento de cada vendedor |
 | `clientes` | Clientes de cada vendedor (nome e endereço) |
-| `marcas` | Marcas e suas metas de positivação |
+| `marcas` | Marcas e suas metas de positivação (compartilhadas; só administradores alteram) |
 | `pedidos` | Pedidos lançados por cliente, com valor e mês de referência |
 | `positivacoes` | Marcas positivadas por cliente, com mês de referência |
+| `vendas_marcas` | Valores vendidos de cada marca por cliente, com mês de referência |
+| `metas_marcas` | Meta de faturamento em R$ de cada marca, por vendedor |
+
+Todas as tabelas têm Row Level Security ativada: o acesso é liberado apenas a usuários autenticados e, nas tabelas dos vendedores, somente aos próprios registros.
 
 
 
