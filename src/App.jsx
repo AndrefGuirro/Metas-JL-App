@@ -1562,7 +1562,7 @@ export default function App() {
       {/* MODAL: POSITIVAR MARCAS (GRADE COMPACTA COM ATUALIZAÇÃO INSTANTÂNEA) */}
       {modalPositivacao && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3">
-          <div className="bg-white w-full max-w-md rounded-2xl p-4 shadow-xl flex flex-col max-h-[90vh]">
+          <div className="bg-white w-full max-w-md rounded-2xl p-4 shadow-xl flex flex-col max-h-[90dvh]">
             <div className="flex justify-between items-center mb-1">
               <h3 className="text-base font-bold text-slate-800">Positivação de Marcas</h3>
               <button onClick={() => setModalPositivacao(null)} className="text-slate-400 p-1 text-sm">✕</button>
@@ -1572,7 +1572,7 @@ export default function App() {
             </p>
             
             {/* Grade 3 colunas para ver todas as 12 marcas de uma vez */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 overflow-y-auto pr-0.5 py-1">
+            <div className="grid grid-cols-2 sm:grid-cols-3 auto-rows-max content-start gap-2 overflow-y-auto min-h-0 pr-0.5 py-1">
               {marcas.map(marca => {
                 const isPositivada = positivacoes.some(p => p.cliente_id === modalPositivacao.id && p.marca_id === marca.id);
                 const lancamentos = getVendasMarcaCliente(modalPositivacao.id, marca.id);
@@ -1581,7 +1581,7 @@ export default function App() {
                 return (
                   <div
                     key={marca.id}
-                    className={`rounded-xl border overflow-hidden flex flex-col shadow-sm ${
+                    className={`rounded-xl border overflow-hidden flex flex-col shrink-0 shadow-sm ${
                       isPositivada ? 'border-blue-600' : 'border-slate-200'
                     }`}
                   >
@@ -1606,7 +1606,7 @@ export default function App() {
                       type="button"
                       onClick={() => abrirValorMarca(modalPositivacao, marca)}
                       aria-label={`Valor vendido de ${marca.nome}`}
-                      className={`py-2.5 px-2 text-[11px] font-bold border-t transition-colors flex items-center justify-center gap-1 active:brightness-95 ${
+                      className={`shrink-0 min-h-[40px] py-2.5 px-2 text-[11px] font-bold border-t transition-colors flex items-center justify-center gap-1 active:brightness-95 ${
                         temValor
                           ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
                           : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
