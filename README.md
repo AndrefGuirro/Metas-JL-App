@@ -81,8 +81,6 @@ Aplicativo web progressivo (PWA) para **acompanhamento diário de metas e vendas
 │   ├── supabaseClient.js       # Cliente do Supabase
 │   ├── main.jsx                # Ponto de entrada
 │   └── index.css               # Estilos globais (Tailwind)
-├── supabase/
-│   └── migracao_mes_ref.sql    # Migração que adiciona o mês de referência
 ├── vite.config.js              # Configuração do Vite e do PWA
 ├── tailwind.config.js
 ├── vercel.json                 # Reescrita de rotas para SPA
