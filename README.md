@@ -74,6 +74,8 @@ Aplicativo web progressivo (PWA) para **acompanhamento diário de metas e vendas
 ├── src/
 │   ├── App.jsx                 # Login, dashboard, clientes, pedidos e marcas
 │   ├── AbasNav.jsx             # Barra de abas com rolagem lateral (mobile)
+│   ├── componentes/            # Janela, caixa de total, formulário e lista de valores
+│   ├── formatadores.js         # Formatação de moeda
 │   ├── LevantamentoEstoque.jsx # Levantamento de estoque e sugestão de pedido
 │   ├── mesReferencia.js        # Utilitários do mês de referência (AAAA-MM)
 │   ├── supabaseClient.js       # Cliente do Supabase

@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useState, useEffect, useMemo } from 'react';
+import { memo, useCallback, useState, useEffect, useMemo } from 'react';
 import { Search, Share2, Trash2, X } from 'lucide-react';
 
 // BASE TOTAL DE PRODUTOS UNIFICADA (Com todos os fabricantes e sem duplicados)
