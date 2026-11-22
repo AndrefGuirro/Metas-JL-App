@@ -1,11 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import LevantamentoEstoque from './LevantamentoEstoque.jsx';
 import AbasNav from './AbasNav.jsx';
 import { getMesRef, formatarMesRef } from './mesReferencia.js';
+import { formatarMoeda } from './formatadores.js';
+import JanelaModal from './componentes/JanelaModal.jsx';
+import CaixaTotal from './componentes/CaixaTotal.jsx';
+import FormularioValor from './componentes/FormularioValor.jsx';
+import ListaLancamentos from './componentes/ListaLancamentos.jsx';
 import {
   Users, Award, Calendar, Search, 
-  Plus, Trash2, Edit3, Pencil, CheckCircle2, ChevronDown, ChevronUp, LogOut, ArrowRight, KeyRound, X 
+  Plus, Trash2, Edit3, Pencil, ChevronDown, ChevronUp, LogOut, ArrowRight, X 
 } from 'lucide-react';
 
 // O Supabase Auth exige e-mail. Quem entra com celular recebe um e-mail interno
@@ -66,7 +71,6 @@ export default function App() {
   const [authIdentificador, setAuthIdentificador] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState('');
-  const [authSuccess, setAuthSuccess] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
   // Estados Globais
@@ -255,7 +259,6 @@ export default function App() {
   async function handleAuth(e) {
     e.preventDefault();
     setAuthError('');
-    setAuthSuccess('');
     setAuthLoading(true);
 
     try {
@@ -329,9 +332,6 @@ export default function App() {
     acc[p.cliente_id] = (acc[p.cliente_id] || 0) + Number(p.valor || 0);
     return acc;
   }, {});
-
-  const formatarMoeda = (valor) =>
-    Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
 
   // Pedidos e total do cliente aberto na lista de pedidos
   const pedidosModal = modalListaPedidos
@@ -780,11 +780,6 @@ export default function App() {
               {authError.endsWith('administrador do sistema') && (
                 <>{' '}<LinkAdministrador />.</>
               )}
-            </div>
-          )}
-          {authSuccess && (
-            <div className="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-700 p-2.5 rounded-lg text-xs">
-              {authSuccess}
             </div>
           )}
 
@@ -1442,121 +1437,36 @@ export default function App() {
 
       {/* MODAL: PEDIDOS DO CLIENTE (TODOS OS PEDIDOS, COM EDITAR/EXCLUIR EM CADA UM) */}
       {modalListaPedidos && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3">
-          <div className="bg-white w-full max-w-md rounded-2xl p-4 shadow-xl flex flex-col max-h-[90dvh]">
-            <div className="flex justify-between items-start gap-2">
-              <div className="min-w-0">
-                <h3 className="text-base font-bold text-slate-800">Pedidos do cliente</h3>
-                <p className="text-xs text-slate-500 truncate">{modalListaPedidos.nome}</p>
-              </div>
-              <button
-                type="button"
-                onClick={fecharListaPedidos}
-                aria-label="Fechar"
-                className="text-slate-400 p-2 -mr-2 -mt-1 text-sm"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="bg-emerald-50 rounded-xl p-3 flex justify-between items-center my-3">
-              <div>
-                <span className="text-[10px] font-bold text-emerald-700 uppercase block">Total dos pedidos</span>
-                <span className="text-[11px] text-emerald-700">
-                  {pedidosModal.length} {pedidosModal.length === 1 ? 'pedido lançado' : 'pedidos lançados'}
-                </span>
-              </div>
-              <span className="text-lg font-extrabold text-emerald-800">R$ {formatarMoeda(totalModal)}</span>
-            </div>
-
-            <form
-              onSubmit={e => { e.preventDefault(); adicionarPedido(modalListaPedidos.id); }}
-              className="flex gap-2 mb-3"
-            >
-              <input
-                type="number"
-                step="0.01"
-                inputMode="decimal"
-                placeholder="Valor do novo pedido (R$)"
-                value={valorNovoPedido}
-                onChange={e => setValorNovoPedido(e.target.value)}
-                className="flex-1 min-w-0 border border-slate-300 rounded-lg p-2.5 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-600"
-              />
-              <button
-                type="submit"
-                className="bg-blue-600 text-white px-3 rounded-lg text-xs font-bold flex items-center gap-1 shrink-0"
-              >
-                <Plus size={16} /> Adicionar
-              </button>
-            </form>
-
-            <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-0.5">
-              {pedidosModal.length === 0 && (
-                <p className="text-xs text-slate-400 text-center py-4">Nenhum pedido lançado.</p>
-              )}
-              {pedidosModal.map(ped => (
-                <div key={ped.id} className="border border-slate-200 rounded-xl p-2.5">
-                  {pedidoEmEdicao === ped.id ? (
-                    <div className="space-y-2">
-                      <input
-                        type="number"
-                        step="0.01"
-                        inputMode="decimal"
-                        value={valorEdicao}
-                        onChange={e => setValorEdicao(e.target.value)}
-                        className="w-full border border-slate-300 rounded-lg p-2.5 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-600"
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => { setPedidoEmEdicao(null); setValorEdicao(''); }}
-                          className="flex-1 bg-slate-100 py-2.5 rounded-lg text-xs font-semibold"
-                        >
-                          Cancelar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => salvarEdicaoPedido(ped.id)}
-                          className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-xs font-semibold"
-                        >
-                          Salvar
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-sm font-bold text-emerald-700">R$ {formatarMoeda(ped.valor)}</span>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => { setPedidoEmEdicao(ped.id); setValorEdicao(ped.valor); }}
-                          className="bg-slate-50 hover:bg-slate-100 text-slate-700 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1"
-                        >
-                          <Edit3 size={14} /> Editar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => excluirPedidoDaLista(ped)}
-                          className="bg-rose-50 hover:bg-rose-100 text-rose-700 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1"
-                        >
-                          <Trash2 size={14} /> Excluir
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={fecharListaPedidos}
-              className="w-full bg-slate-100 py-3 rounded-xl text-xs font-bold mt-3"
-            >
-              Fechar
-            </button>
-          </div>
-        </div>
+        <JanelaModal
+          titulo="Pedidos do cliente"
+          linhas={<p className="text-xs text-slate-500 truncate">{modalListaPedidos.nome}</p>}
+          aoFechar={fecharListaPedidos}
+        >
+          <CaixaTotal
+            titulo="Total dos pedidos"
+            quantidade={pedidosModal.length}
+            singular="pedido lançado"
+            plural="pedidos lançados"
+            total={totalModal}
+          />
+          <FormularioValor
+            aoEnviar={e => { e.preventDefault(); adicionarPedido(modalListaPedidos.id); }}
+            valor={valorNovoPedido}
+            aoMudar={setValorNovoPedido}
+            placeholder="Valor do novo pedido (R$)"
+          />
+          <ListaLancamentos
+            itens={pedidosModal}
+            textoVazio="Nenhum pedido lançado."
+            idEmEdicao={pedidoEmEdicao}
+            valorEdicao={valorEdicao}
+            aoMudarValor={setValorEdicao}
+            aoEditar={ped => { setPedidoEmEdicao(ped.id); setValorEdicao(ped.valor); }}
+            aoCancelar={() => { setPedidoEmEdicao(null); setValorEdicao(''); }}
+            aoSalvar={salvarEdicaoPedido}
+            aoExcluir={excluirPedidoDaLista}
+          />
+        </JanelaModal>
       )}
 
       {/* MODAL: POSITIVAR MARCAS (GRADE COMPACTA COM ATUALIZAÇÃO INSTANTÂNEA) */}
@@ -1633,23 +1543,11 @@ export default function App() {
 
       {/* MODAL: DETALHE DO FATURAMENTO DA MARCA (META EM R$ E CLIENTES) */}
       {selectedFatMarca && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3">
-          <div className="bg-white w-full max-w-md rounded-2xl p-4 shadow-xl flex flex-col max-h-[90dvh]">
-            <div className="flex justify-between items-start gap-2">
-              <div className="min-w-0">
-                <h3 className="text-base font-bold text-slate-800 truncate">{selectedFatMarca.nome}</h3>
-                <p className="text-[11px] text-slate-400 capitalize">{formatarMesRef(mesRef)}</p>
-              </div>
-              <button
-                type="button"
-                onClick={fecharDetalheFatMarca}
-                aria-label="Fechar"
-                className="text-slate-400 p-2 -mr-2 -mt-2 text-sm"
-              >
-                ✕
-              </button>
-            </div>
-
+        <JanelaModal
+          titulo={selectedFatMarca.nome}
+          linhas={<p className="text-[11px] text-slate-400 capitalize">{formatarMesRef(mesRef)}</p>}
+          aoFechar={fecharDetalheFatMarca}
+        >
             <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-0.5 mt-3">
               {(() => {
                 const meta = getMetaFatMarca(selectedFatMarca.id);
@@ -1765,141 +1663,54 @@ export default function App() {
                 </div>
               </div>
             </div>
-
-            <button
-              type="button"
-              onClick={fecharDetalheFatMarca}
-              className="w-full bg-slate-100 py-3 rounded-xl text-xs font-bold mt-3"
-            >
-              Fechar
-            </button>
-          </div>
-        </div>
+        </JanelaModal>
       )}
 
       {/* MODAL: VALORES VENDIDOS DA MARCA PARA O CLIENTE (vários lançamentos, com total; fica por cima das outras janelas) */}
       {modalValorMarca && (() => {
         const { cliente, marca } = modalValorMarca;
         const lancamentos = getVendasMarcaCliente(cliente.id, marca.id);
-        const total = getTotalMarcaCliente(cliente.id, marca.id);
         return (
-          <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-3">
-            <div className="bg-white w-full max-w-md rounded-2xl p-4 shadow-xl flex flex-col max-h-[90dvh]">
-              <div className="flex justify-between items-start gap-2">
-                <div className="min-w-0">
-                  <h3 className="text-base font-bold text-slate-800 truncate">Valor vendido: {marca.nome}</h3>
-                  <p className="text-xs text-slate-500 truncate">{cliente.nome}</p>
-                  <p className="text-[11px] text-slate-400 capitalize">{formatarMesRef(mesRef)}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={fecharValorMarca}
-                  aria-label="Fechar"
-                  className="text-slate-400 p-2 -mr-2 -mt-1 text-sm"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="bg-emerald-50 rounded-xl p-3 flex justify-between items-center my-3">
-                <div>
-                  <span className="text-[10px] font-bold text-emerald-700 uppercase block">Total vendido da marca</span>
-                  <span className="text-[11px] text-emerald-700">
-                    {lancamentos.length} {lancamentos.length === 1 ? 'lançamento' : 'lançamentos'}
-                  </span>
-                </div>
-                <span className="text-lg font-extrabold text-emerald-800">R$ {formatarMoeda(total)}</span>
-              </div>
-
-              <form onSubmit={adicionarValorMarca} className="flex gap-2 mb-3">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  inputMode="decimal"
-                  autoFocus={lancamentos.length === 0}
-                  placeholder={lancamentos.length === 0 ? 'Valor vendido (R$)' : 'Novo valor (R$)'}
-                  value={valorMarcaInput}
-                  onChange={e => setValorMarcaInput(e.target.value)}
-                  className="flex-1 min-w-0 border border-slate-300 rounded-lg p-2.5 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-600"
-                />
-                <button
-                  type="submit"
-                  disabled={salvandoValorMarca}
-                  className="bg-blue-600 text-white px-3 rounded-lg text-xs font-bold flex items-center gap-1 shrink-0 disabled:opacity-50"
-                >
-                  <Plus size={16} /> {salvandoValorMarca ? 'Salvando...' : 'Adicionar'}
-                </button>
-              </form>
-
-              <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-0.5">
-                {lancamentos.length === 0 && (
-                  <p className="text-xs text-slate-400 text-center py-4">Nenhum valor lançado.</p>
-                )}
-                {lancamentos.map(v => (
-                  <div key={v.id} className="border border-slate-200 rounded-xl p-2.5">
-                    {vendaEmEdicao === v.id ? (
-                      <div className="space-y-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          inputMode="decimal"
-                          value={valorEdicaoVenda}
-                          onChange={e => setValorEdicaoVenda(e.target.value)}
-                          className="w-full border border-slate-300 rounded-lg p-2.5 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-600"
-                        />
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => { setVendaEmEdicao(null); setValorEdicaoVenda(''); }}
-                            className="flex-1 bg-slate-100 py-2.5 rounded-lg text-xs font-semibold"
-                          >
-                            Cancelar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => salvarEdicaoVendaMarca(v.id)}
-                            className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg text-xs font-semibold"
-                          >
-                            Salvar
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-sm font-bold text-emerald-700">R$ {formatarMoeda(v.valor)}</span>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => { setVendaEmEdicao(v.id); setValorEdicaoVenda(String(v.valor)); }}
-                            className="bg-slate-50 hover:bg-slate-100 text-slate-700 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1"
-                          >
-                            <Edit3 size={14} /> Editar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => excluirVendaMarca(v)}
-                            className="bg-rose-50 hover:bg-rose-100 text-rose-700 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1"
-                          >
-                            <Trash2 size={14} /> Excluir
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <button
-                type="button"
-                onClick={fecharValorMarca}
-                className="w-full bg-slate-100 py-3 rounded-xl text-xs font-bold mt-3"
-              >
-                Fechar
-              </button>
-            </div>
-          </div>
+          <JanelaModal
+            camada="z-[60]"
+            titulo={`Valor vendido: ${marca.nome}`}
+            linhas={
+              <>
+                <p className="text-xs text-slate-500 truncate">{cliente.nome}</p>
+                <p className="text-[11px] text-slate-400 capitalize">{formatarMesRef(mesRef)}</p>
+              </>
+            }
+            aoFechar={fecharValorMarca}
+          >
+            <CaixaTotal
+              titulo="Total vendido da marca"
+              quantidade={lancamentos.length}
+              singular="lançamento"
+              plural="lançamentos"
+              total={getTotalMarcaCliente(cliente.id, marca.id)}
+            />
+            <FormularioValor
+              aoEnviar={adicionarValorMarca}
+              valor={valorMarcaInput}
+              aoMudar={setValorMarcaInput}
+              placeholder={lancamentos.length === 0 ? 'Valor vendido (R$)' : 'Novo valor (R$)'}
+              min="0"
+              autoFocus={lancamentos.length === 0}
+              salvando={salvandoValorMarca}
+            />
+            <ListaLancamentos
+              itens={lancamentos}
+              textoVazio="Nenhum valor lançado."
+              idEmEdicao={vendaEmEdicao}
+              valorEdicao={valorEdicaoVenda}
+              min="0"
+              aoMudarValor={setValorEdicaoVenda}
+              aoEditar={v => { setVendaEmEdicao(v.id); setValorEdicaoVenda(String(v.valor)); }}
+              aoCancelar={() => { setVendaEmEdicao(null); setValorEdicaoVenda(''); }}
+              aoSalvar={salvarEdicaoVendaMarca}
+              aoExcluir={excluirVendaMarca}
+            />
+          </JanelaModal>
         );
       })()}
 
